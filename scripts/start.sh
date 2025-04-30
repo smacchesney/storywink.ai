@@ -1,3 +1,6 @@
+echo "DEBUG DATABASE_URL=$DATABASE_URL"
+echo "DEBUG DIRECT_URL=$DIRECT_URL"
+
 #!/usr/bin/env bash
 set -e
 
