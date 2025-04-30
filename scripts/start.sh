@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-set -e       # exit on first error
+set -e
 
-echo "🟢 Running Prisma migrations…"
-npx prisma migrate deploy
+echo "🟢 Running Prisma migrations"
+export PRISMA_MIGRATION_DATABASE_URL="$DIRECT_URL"   # ← add this
+npx prisma migrate deploy                            # now uses 5432
 
 echo "🟢 Starting Next.js on $PORT"
-exec npx next start -p "$PORT"   # replace with your real start cmd
+exec npx next start -p "$PORT"
