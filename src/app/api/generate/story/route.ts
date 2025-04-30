@@ -32,6 +32,7 @@ const storyRequestSchema = z.object({
   people: z.string().optional().default(''),
   objects: z.string().optional().default(''),
   excitementElement: z.string().optional().default(''),
+  isWinkifyEnabled: z.boolean().optional().default(false), // Add field to schema
 });
 
 // Define the data structure required by the story generation worker job
@@ -56,6 +57,7 @@ export interface StoryGenerationJobData {
     assetId: string | null; // ID of the original asset for this page
     originalImageUrl: string | null; // URL of the original asset image
   }[];
+  isWinkifyEnabled: boolean;
 }
 
 export async function POST(request: Request) {
@@ -98,6 +100,7 @@ export async function POST(request: Request) {
         keyCharacters: requestData.people, // Map request field to schema field
         specialObjects: requestData.objects, // Map request field to schema field
         excitementElement: requestData.excitementElement,
+        isWinkifyEnabled: requestData.isWinkifyEnabled, // Persist flag
         status: BookStatus.GENERATING, // Use imported enum
         // TODO: Add other relevant fields like typography if added later
       },
@@ -231,8 +234,8 @@ export async function POST(request: Request) {
 
     // Construct the job data payload
     const jobData: StoryGenerationJobData = {
-        userId,
-        bookId: newBook.id,
+      userId,
+      bookId: newBook.id,
         promptContext: {
             childName: requestData.childName,
             bookTitle: requestData.bookTitle,
@@ -249,6 +252,7 @@ export async function POST(request: Request) {
             assetId: p.assetId,
             originalImageUrl: p.originalImageUrl,
         })),
+        isWinkifyEnabled: requestData.isWinkifyEnabled, // Forward flag (verify already here)
     };
 
     // Step 5: Add job to queue

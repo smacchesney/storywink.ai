@@ -96,7 +96,7 @@ const FlipbookViewer = forwardRef<FlipbookActions, FlipbookViewerProps>((
   }, [initialPageNumber, pages.length]);
 
   return (
-    <div ref={containerRef} className={cn("w-full flex justify-center items-center", className)} style={{ height: containerHeight }}>
+    <div ref={containerRef} className={cn("w-full flex justify-center items-center", className)} style={{ height: containerHeight }}> 
       <HTMLFlipBook
         ref={flipBookInternalRef}
         width={containerWidth / 2} // Each page takes half the width in spread view

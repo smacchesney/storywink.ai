@@ -20,10 +20,13 @@
     "prisma:studio": "prisma studio",
     "worker:dev:story": "ts-node --project tsconfig.worker.json -r tsconfig-paths/register src/queues/workers/story-generation.worker.ts",
     "worker:dev:illustration": "ts-node --project tsconfig.worker.json -r tsconfig-paths/register src/queues/workers/illustration-generation.worker.ts",
-    "dev:all": "concurrently --names \"NEXT,STORY,ILLUS\" -c \"bgBlue.bold,bgMagenta.bold,bgGreen.bold\" \"npm:dev\" \"npm:worker:dev:story\" \"npm:worker:dev:illustration\"",
+    "worker:dev:finalize": "ts-node --project tsconfig.worker.json -r tsconfig-paths/register src/queues/workers/book-finalize.worker.ts",
+    "dev:all": "concurrently --names \"NEXT,STORY,ILLUS,FINAL\" -c \"bgBlue.bold,bgMagenta.bold,bgGreen.bold,bgCyan.bold\" \"npm:dev\" \"npm:worker:dev:story\" \"npm:worker:dev:illustration\" \"npm:worker:dev:finalize\"",
     "list": "node scripts/dev.js list",
     "generate": "node scripts/dev.js generate",
-    "parse-prd": "node scripts/dev.js parse-prd"
+    "parse-prd": "node scripts/dev.js parse-prd",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "db:migrate:dev:local": "dotenv -e .env.local -- npx prisma migrate dev --schema=./prisma/schema.prisma --name init-local"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",

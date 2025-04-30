@@ -12,7 +12,7 @@ export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ bookId: string, pageId: string }> }
 ) {
-  const { bookId, pageId } = await params;
+  const { bookId, pageId } = await params; 
   
   // Now perform auth check
   const authResult = await auth();

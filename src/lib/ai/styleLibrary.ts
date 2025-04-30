@@ -1,169 +1,122 @@
-/* styleLibrary.ts
- *  └── import { STYLE_LIBRARY, createIllustrationPrompt } from "./styleLibrary";
- */
+/* eslint-disable @typescript-eslint/no-var-requires */
+// Using CommonJS syntax as this file is required by workers run via ts-node
 
-// Using CommonJS syntax as this file is within src/lib
+// Import logger (assuming relative path works, adjust if needed)
+import logger from '@/lib/logger';
 
 const STYLE_LIBRARY = {
   cartoonBrights: {
-    label: "Cartoon Brights",
-    descriptor: [
-      "bold flat shading",
-      "thick 6-px clean black outlines",
-      "smooth digital vector look",
-      "sample all colours and overall layout directly from the reference photo"
-    ].join(", ")
+    label: 'Cartoon Brights',
+    descriptor:
+      'bold flat shading, thick 6-px clean black outlines, smooth digital vector look, sample all colours and overall layout directly from the reference photo',
   },
-
   softWatercolor: {
-    label: "Soft Watercolor",
-    descriptor: [
-      "loose watercolor wash on cold-press paper",
-      "no hard outlines, soft edge bleeding",
-      "subtle paper texture",
-      "reuse the hues and composition of the reference photo"
-    ].join(", ")
+    label: 'Soft Watercolor',
+    descriptor:
+      'loose watercolor wash on cold-press paper, no hard outlines, soft edge bleeding, subtle paper texture, reuse the hues and composition of the reference photo',
   },
-
   crayonScribble: {
-    label: "Crayon Scribble",
-    descriptor: [
-      "wax-crayon strokes with visible grain",
-      "wobbly hand-drawn outlines",
-      "uneven fill, child-like energy",
-      "colours should be sampled from the reference photo"
-    ].join(", ")
+    label: 'Crayon Scribble',
+    descriptor:
+      'wax-crayon strokes with visible grain, wobbly hand-drawn outlines, uneven fill, child-like energy, colours should be sampled from the reference photo',
   },
-
   digitalGouache: {
-    label: "Digital Gouache",
-    descriptor: [
-      "opaque gouache strokes with dry-brush texture",
-      "chunky shapes, flat perspective",
-      "soft paper tooth",
-      "colour choices and arrangement mirror the reference photo"
-    ].join(", ")
+    label: 'Digital Gouache',
+    descriptor:
+      'opaque gouache strokes with dry-brush texture, chunky shapes, flat perspective, soft paper tooth, colour choices mirror the reference photo',
   },
-
   paperCutCollage: {
-    label: "Paper-Cut Collage",
-    descriptor: [
-      "layered coloured-paper shapes with subtle drop shadows",
-      "crisp torn or scissor edges",
-      "light grain, slight 3-D feel",
-      "replicate the colour palette and subject placement from the reference photo"
-    ].join(", ")
+    label: 'Paper-Cut Collage',
+    descriptor:
+      'layered coloured-paper shapes with subtle drop shadows, crisp scissor edges, slight 3-D feel, replicate the colour palette and subject placement from the reference photo',
   },
-
   pixelQuest: {
-    label: "Pixel Quest",
-    descriptor: [
-      "retro 16-bit pixel art",
-      "1-pixel black outlines, visible dithering",
-      "blocky 64×64 base grid then upscaled",
-      "derive sprite colours and scene layout from the reference photo"
-    ].join(", ")
+    label: 'Pixel Quest',
+    descriptor:
+      'retro 16-bit pixel art, 1-px black outlines, visible dithering, blocky 64x64 grid then upscaled, derive sprite colours and layout from the reference photo', // Corrected 64x64
   },
-
   kawaiiMinimal: {
-    label: "Kawaii Minimal",
-    descriptor: [
-      "super-deformed cute style, big round eyes",
-      "2-px pastel outlines",
-      "minimal details, soft gradients",
-      "take colours and object positions from the reference photo"
-    ].join(", ")
+    label: 'Kawaii Minimal',
+    descriptor:
+      'super-deformed cute style, big round eyes, 2-px pastel outlines, minimal details, soft gradients, take colours and object positions from the reference photo',
   },
-
   chalkboard: {
-    label: "Chalkboard",
-    descriptor: [
-      "white chalk strokes on dusty dark-green chalkboard",
-      "slightly smeared edges, hand lettering feel",
-      "chalk dust particles",
-      "copy shapes and proportions seen in the reference photo"
-    ].join(", ")
-  }
+    label: 'Chalkboard',
+    descriptor:
+      'white chalk strokes on dusty dark-green chalkboard, slightly smeared edges, hand lettering feel, chalk dust particles; copy shapes from the reference photo',
+  },
 } as const;
 
 type StyleKey = keyof typeof STYLE_LIBRARY;
 
-interface PromptOptions {
+interface IllustrationPromptOptions {
   style: StyleKey;
   theme: string | null;
   tone: string | null;
   pageText: string | null;
   bookTitle: string | null;
   isTitlePage?: boolean;
+  illustrationNotes?: string | null;
+  isWinkifyEnabled?: boolean; // Include Winkify flag
 }
 
-/** Builds the final prompt string (≤ 950 chars) */
-function createIllustrationPrompt(options: PromptOptions): string {
-  // Explicitly extract values and handle default for isTitlePage
-  const { style, theme, tone, pageText, bookTitle } = options;
-  const isTitlePage = !!options.isTitlePage;      // Coerce any truthy value to boolean
+const MAX_PROMPT_CHARS = 30000; // gpt-image-1 safe ceiling (Adjust if needed for actual model)
 
-  const styleKey = style && STYLE_LIBRARY[style] ? style : 'cartoonBrights';
-  const styleBlock = STYLE_LIBRARY[styleKey].descriptor;
+export function createIllustrationPrompt(
+  opts: IllustrationPromptOptions
+): string {
+  // **** TEMP LOG: Log received options at INFO level ****
+  logger.info({ optionsReceived: opts }, `[createIllustrationPrompt] Received opts`);
+  // ***************************************************
 
-  // **** DEBUG: Check isTitlePage value INSIDE the function ****
-  console.log(`[createIllustrationPrompt] Received isTitlePage: ${isTitlePage} (Type: ${typeof isTitlePage})`);
-  // ***********************************************************
+  const styleDesc = STYLE_LIBRARY[opts.style]?.descriptor ??
+    STYLE_LIBRARY.cartoonBrights.descriptor;
 
-  let parts: (string | null | undefined)[];
+  // Base instructions common to both
+  const base = [
+    `Style: ${styleDesc}.`,
+    'Preserve every face, pose and background layout from the reference exactly.',
+    'Maintain original colour palette. White balance 6000 K.',
+  ];
 
-  if (isTitlePage) {
-    parts = [
-      "You are illustrating the TITLE PAGE for a toddler board book.",
-      `Apply this exact visual language: ${styleBlock}.`,
-      "Keep all colours, character poses and background layout from the provided reference photo.",
-      "Set white balance to 6000 K.",
-      bookTitle ? `The book title is \"${bookTitle}\". Integrate this title text (exactly) seamlessly and artistically into the illustration itself, like a real book cover.` : null,
-      bookTitle ? `Ensure the title text placement is aesthetically pleasing, very legible and does not obscure any important characters or details in the main illustration.` : null,
-      theme ? `Overall theme: ${theme}.` : null,
-      tone ? `Mood: ${tone}.` : null,
-      "Create a captivating image suitable for a cover/title page.",
-      "Return a single square 1024×1024 JPG."
-    ];
-  } else {
-    parts = [
-        // ■ 0  Format & context
-  "You are illustrating a toddler board book.",
-  "Return ONE square 1024×1024 JPG, nothing else.",
+  // Winkify specific instructions (added only if enabled and notes exist)
+  const winkBits = opts.isWinkifyEnabled && opts.illustrationNotes
+    ? [
+        'Add subtle dynamic effects (zoom lines, sparkles, motion blur) to enhance action without altering characters or faces. Effects should cover less than 20% of the scene.', // Fixed <= symbol
+        `Creative effect: ${opts.illustrationNotes}.`,
+      ]
+    : [];
 
-  // ■ 1  Style block
-  `Apply EXACTLY this visual language: ${styleBlock}.`,
-  "Keep outlines ~6 px.",                                // consistency anchor
+  // Page-specific instructions (Title vs Story)
+  const titleBits = opts.isTitlePage
+    ? [ // Title Page specific instructions
+        `Integrate the book title "${opts.bookTitle}" in-scene, highly legible, not blocking key details.`,
+        opts.theme && `Theme: ${opts.theme}.`,
+        opts.tone && `Mood: ${opts.tone}.`,
+        'Create a captivating 1024x1024 cover image.', // Corrected size format
+        // Ensure title page doesn't get text cloud instructions
+      ]
+    : [ // Story Page specific instructions
+        'Add a soft-edged white text container cloud (70% opacity) for the narrative text; ensure it does not cover faces (note: NOT A SPEECH CLOUD/BUBBLE).', // Clarified it's not a speech bubble
+        `Inside the cloud print: "${(opts.pageText ?? '').trim()}" in Comic Neue Bold navy (#1A2A6B) ≈80 pt, exactly once.`, // Corrected font name, size symbol
+        `Ensure the entire sentence fits comfortably within the image with adequate padding from the edges -- fully visible, and not cut off by image edges.`, // NEW layout constraint
+        opts.tone && `Mood: ${opts.tone}.`,
+        // Add other story-page specific needs here if any
+      ];
 
+  // Combine all parts: Base + Winkify (if applicable) + Page-Specific
+  const prompt = [...base, ...winkBits, ...titleBits]
+    .filter(Boolean) // Remove any null/undefined/empty parts
+    .join(' '); // Join with spaces
 
-  // ■ 2  Reference-photo fidelity
-  "Copy every face, pose, and object layout from the reference photo.",
-  "Do NOT crop or reposition main subjects.",
-
-  // ■ 3  Embedded text cloud
-  "Add a single SOFT-EDGED cloud (white, 70 % opacity).",
-  "Let the model decide the cloud's shape and position,",
-  "but it MUST NOT cover faces or important scene elements.",
-  `Inside that cloud, print this sentence **exactly once**, clear and readable:\n“${pageText?.trim() ?? ""}”`,
-  "Use exactly font Comic Neue Bold, navy colour (#1A2A6B), size ≈80 pt",
-
-  // ■ 4  Negative constraints
-  "No other text, watermarks, or duplicate words.",
-  "Do not invent new characters or props.",
-
-  // ■ 5  Finish
-  "Return only the image."
-    ];
-  }
-
-  const prompt = parts.filter(Boolean).join("\n");
-  return prompt.length > 950 ? prompt.slice(0, 947) + "…" : prompt;
+  // Truncate if necessary
+  return prompt.length > MAX_PROMPT_CHARS
+    ? prompt.slice(0, MAX_PROMPT_CHARS - 1) + '…' // Use ellipsis
+    : prompt;
 }
 
-// Export using CommonJS syntax
-module.exports = {
-    STYLE_LIBRARY,
-    createIllustrationPrompt,
-    // Export type if needed elsewhere
-    // PromptOptions
-}; 
+// Exports for other modules
+export { STYLE_LIBRARY };
+export type { StyleKey, IllustrationPromptOptions };
+
+// Remove CommonJS export block 

@@ -1,19 +1,38 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { z } from 'zod';
-import { getQueue, QueueName } from '@/lib/queue';
+import { QueueName, flowProducer } from '@/lib/queue/index';
 import { db as prisma } from '@/lib/db';
-import { BookStatus } from '@prisma/client';
+import { BookStatus, Prisma } from '@prisma/client';
+import logger from '@/lib/logger';
 
 // Define the expected input schema using Zod
 const illustrationRequestSchema = z.object({
-  bookId: z.string().min(1, { message: "Valid Book ID is required" }),
+  bookId: z.string().cuid({ message: "Valid Book ID (CUID) is required" }),
 });
 
-// Define the structure of the job data
+// Re-define the structure of the job data needed by the ILLUSTRATION WORKER
+// (Should match the worker's expectation)
 export interface IllustrationGenerationJobData {
   userId: string;
   bookId: string;
+  pageId: string;
+  pageNumber: number;
+  text: string | null;
+  artStyle: string | null | undefined;
+  tone: string | null | undefined;
+  theme: string | null | undefined;
+  bookTitle: string | null | undefined;
+  isTitlePage: boolean;
+  illustrationNotes: string | null | undefined;
+  originalImageUrl: string | null;
+  isWinkifyEnabled: boolean;
+}
+
+// Define job data structure for the BookFinalize parent job (used locally)
+interface BookFinalizeJobData {
+    bookId: string;
+    userId: string;
 }
 
 export async function POST(request: Request) {
@@ -47,8 +66,25 @@ export async function POST(request: Request) {
         userId: userId, // Ensure the user owns the book
       },
       select: {
-        status: true, // Select only the status we need for validation
         id: true,
+        title: true,
+        artStyle: true,
+        tone: true,
+        theme: true,
+        status: true,
+        isWinkifyEnabled: true, // <<< Verify this flag is selected
+        pages: {
+          orderBy: { pageNumber: 'asc' },
+          select: { // Select all fields needed for the job
+            id: true,
+            pageNumber: true,
+            text: true,
+            originalImageUrl: true,
+            isTitlePage: true,
+            illustrationNotes: true,
+            // Avoid fetching generatedImageUrl here if not needed
+          }
+        }
       }
     });
 
@@ -57,43 +93,86 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Book not found or access denied.' }, { status: 404 });
     }
 
+    // Validate status (e.g., must be COMPLETED after text gen)
     // Ideally, story generation should be COMPLETED before illustration starts
-    if (book.status !== BookStatus.COMPLETED && book.status !== BookStatus.GENERATING) {
-      // Allow GENERATING if polling is slow, but COMPLETED is ideal
-      // Might need refinement based on exact polling/state flow
+    if (book.status !== BookStatus.COMPLETED) {
       console.warn({ userId, bookId: requestData.bookId, status: book.status }, 'Book not in correct state for illustration generation.');
-      // For now, let's allow it and let the worker potentially handle retries/waits if needed
-      // return NextResponse.json({ error: `Book must be in COMPLETED state (current: ${book.status})` }, { status: 409 });
+      return NextResponse.json({ error: `Book must be in COMPLETED state to start illustration (current: ${book.status})` }, { status: 409 }); // Conflict status
+    }
+
+    // Check if pages exist
+    if (!book.pages || book.pages.length === 0) {
+       console.error({ userId, bookId: book.id }, 'No pages found for this book to illustrate.');
+       return NextResponse.json({ error: 'Cannot illustrate a book with no pages.' }, { status: 400 });
     }
 
     console.info({ userId, bookId: book.id }, 'Book validation successful.');
 
-    // Step 2: Update Book Status to ILLUSTRATING
-    // It's important to update status *before* queuing to avoid race conditions
-    // if the worker picks up the job instantly.
+    // Step 2: Update Book Status to ILLUSTRATING first
     await prisma.book.update({
         where: { id: book.id },
         data: { status: BookStatus.ILLUSTRATING }
     });
     console.info({ userId, bookId: book.id }, 'Book status updated to ILLUSTRATING.');
 
-    // Step 3: Prepare Job Data
-    const jobData: IllustrationGenerationJobData = {
-      userId,
-      bookId: book.id,
-    };
-
-    // Step 4: Add job to the Illustration Generation queue
-    const illustrationQueue = getQueue(QueueName.IllustrationGeneration);
-    const job = await illustrationQueue.add('generate-illustrations', jobData, {
-      attempts: 3,
-      backoff: { type: 'exponential', delay: 10000 }, // Longer delay for image gen?
+    // Step 3: Create child job definitions for each page
+    const pageChildren = book.pages.map((page) => {
+        // Build the data needed specifically by the illustration worker
+        const illustrationJobData: IllustrationGenerationJobData = {
+            userId: userId,
+            bookId: book.id,
+            pageId: page.id,
+            pageNumber: page.pageNumber,
+            text: page.text,
+            artStyle: book.artStyle,
+            tone: book.tone,
+            theme: book.theme,
+            bookTitle: book.title,
+            isWinkifyEnabled: book.isWinkifyEnabled || false, // <<< Verify this flag is added to job data
+            isTitlePage: page.isTitlePage || false,
+            illustrationNotes: page.illustrationNotes,
+            originalImageUrl: page.originalImageUrl,
+        };
+        // Use unique job name per page to potentially allow resuming/tracking
+        const jobName = `generate-illustration-${book.id}-p${page.pageNumber}`;
+        logger.info({ userId, bookId: book.id, pageId: page.id, pageNumber: page.pageNumber }, `Queueing job: ${jobName}`);
+        return {
+            name: jobName,
+            queueName: QueueName.IllustrationGeneration, // Target the existing worker queue
+            data: illustrationJobData,
+            opts: { // Options for each page job
+                attempts: 3,
+                backoff: { type: 'exponential', delay: 10000 }, 
+                removeOnComplete: { count: 1000 },
+                removeOnFail: { count: 5000 },
+                // Flow options:
+                failParentOnFailure: false, // Don't fail the whole book for one page (allow PARTIAL)
+                removeDependencyOnFailure: true // Allow parent to proceed even if a child fails
+            }
+        };
     });
 
-    console.info({ userId, bookId: book.id, jobId: job.id }, 'Added illustration generation job to queue');
+    // Step 4: Add the flow (parent job + children) atomically
+    const finalizeJobData: BookFinalizeJobData = {
+        bookId: book.id,
+        userId: userId,
+    };
 
-    // Step 5: Return Job ID and Book ID
-    return NextResponse.json({ jobId: job.id, bookId: book.id }, { status: 202 });
+    await flowProducer.add({
+        name: `finalize-book-${book.id}`,
+        queueName: QueueName.BookFinalize, // Parent job goes to the new queue
+        data: finalizeJobData,
+        opts: { 
+            removeOnComplete: { count: 100 }, // Keep fewer parent jobs
+            removeOnFail: { count: 500 }
+        },
+        children: pageChildren // Link the page illustration jobs
+    });
+
+    logger.info({ userId, bookId: book.id, childJobCount: pageChildren.length }, 'Added illustration flow to queue (parent + children)');
+
+    // Step 5: Return confirmation
+    return NextResponse.json({ message: `Illustration flow initiated for ${pageChildren.length} pages.`, bookId: book.id }, { status: 202 });
 
   } catch (error: any) {
     console.error({ userId, bookId: requestData.bookId, error: error.message }, 'Error during illustration job queuing or validation');

@@ -72,6 +72,19 @@ export async function POST(request: Request) {
             const bytes = await file.arrayBuffer();
             const buffer = Buffer.from(bytes);
 
+            // --- Ensure User Exists in DB (Idempotent Upsert) ---
+            // This prevents FK errors if the webhook hasn't processed the user yet.
+            await prisma.user.upsert({
+                where: { id: userId },
+                create: {
+                    id: userId,
+                    email: "placeholder@example.com", // Default or fetch from Clerk if needed here?
+                    // Add other fields if necessary/available, otherwise rely on webhook for updates
+                },
+                update: {},
+            });
+            logger.info({ userId }, "User upsert completed/ensured in upload route.");
+
             // --- Upload to Cloudinary ---
             const cloudinaryResult = await uploadToCloudinary(buffer, {
                 folder: `user_${userId}/uploads`, // Organize uploads by user

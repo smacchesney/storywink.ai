@@ -61,6 +61,7 @@ model Book {
   updatedAt         DateTime   @updatedAt
   user              User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   pages             Page[]
+  isWinkifyEnabled  Boolean  @default(false)   // ← NEW
 
   @@index([userId])
 }
@@ -77,6 +78,7 @@ model Page {
   generatedImageUrl String?
   text              String?
   textConfirmed     Boolean? @default(false)
+  illustrationNotes String?
 
   isTitlePage Boolean @default(false)
 

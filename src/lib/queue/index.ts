@@ -1,5 +1,6 @@
 import { Queue, QueueOptions, WorkerOptions } from 'bullmq';
 import IORedis from 'ioredis';
+import { FlowProducer } from 'bullmq';
 
 // Ensure Redis URL is provided via environment variables
 if (!process.env.REDIS_URL) {
@@ -13,10 +14,14 @@ const connectionOptions = {
   }),
 };
 
+// Create and export a single FlowProducer instance
+export const flowProducer = new FlowProducer(connectionOptions);
+
 // Define queue names centrally
 export enum QueueName {
   StoryGeneration = 'story-generation',
   IllustrationGeneration = 'illustration-generation',
+  BookFinalize = 'book-finalize', // Add queue for finalization job
   // Add other queue names here if needed
 }
 

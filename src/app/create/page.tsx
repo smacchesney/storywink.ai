@@ -9,6 +9,8 @@ import { ArrowLeft, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useBookCreation, BookData } from '@/context/BookCreationContext';
 import { BookStatus } from '@prisma/client';
+import { Switch } from "@/components/ui/switch"
+import { Label } from "@/components/ui/label"
 
 // Import STYLE_LIBRARY using require due to CJS
 const { STYLE_LIBRARY } = require('@/lib/ai/styleLibrary');
@@ -45,6 +47,7 @@ export default function CreateBookPage() {
   const [pageCount, setPageCount] = useState<PageCount>(8);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [isWinkifyEnabled, setIsWinkifyEnabled] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -151,6 +154,7 @@ export default function CreateBookPage() {
         people: editorSettings.people || '',
         objects: editorSettings.objects || '',
         excitementElement: editorSettings.excitementElement || '',
+        isWinkifyEnabled: isWinkifyEnabled,
     };
     console.log("Generating story with payload:", requestPayload);
 
@@ -254,6 +258,17 @@ export default function CreateBookPage() {
           onPageCountChange={setPageCount}
           styleLibrary={STYLE_LIBRARY}
       />
+
+      <div className="flex items-center space-x-2 mt-4 mb-6 justify-end">
+          <Label htmlFor="winkify-toggle" className="cursor-pointer text-muted-foreground">
+              ✨ Add extra creative flair to illustrations?
+          </Label>
+          <Switch
+              id="winkify-toggle"
+              checked={isWinkifyEnabled}
+              onCheckedChange={setIsWinkifyEnabled}
+          />
+      </div>
 
       <div className="mt-6 flex justify-end">
          <Button onClick={handleGenerateStory} disabled={isGenerating || isUploading}>

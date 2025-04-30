@@ -119,7 +119,7 @@ export default function ReviewPage() {
           console.log("Review Page: Updating pages state with fetched text:", mappedPages);
           setPages(mappedPages);
           setConfirmed(fetchedBook.pages.map((p: Page) => p.textConfirmed || p.isTitlePage));
-          setCurrentIndex(0);
+    setCurrentIndex(0);
 
           const hasMissingText = mappedPages.some(p => !p.isTitlePage && p.text === null);
 
@@ -127,19 +127,19 @@ export default function ReviewPage() {
             // This case should be less common now, but handle if pages exist but text is null
             console.log(`Review Page: Text missing and status is ${currentStatus}. Starting text polling.`);
             setIsLoadingText(true);
-            setNeedsTextPolling(true);
+      setNeedsTextPolling(true);
           } else if (currentStatus === BookStatus.ILLUSTRATING) {
-            console.log("Review Page: Status is ILLUSTRATING, setting up final status polling.");
-            setIsLoadingText(false);
-            setNeedsTextPolling(false);
-            setIsAwaitingFinalStatus(true);
-          } else {
+      console.log("Review Page: Status is ILLUSTRATING, setting up final status polling.");
+      setIsLoadingText(false); 
+      setNeedsTextPolling(false);
+      setIsAwaitingFinalStatus(true); 
+    } else {
             // Includes COMPLETED, FAILED, DRAFT (if pages somehow exist)
             console.log(`Review Page: Initial status ${currentStatus}. No text polling needed.`);
-            setIsLoadingText(false);
-            setNeedsTextPolling(false);
-            setIsAwaitingFinalStatus(false);
-          }
+      setIsLoadingText(false);
+      setNeedsTextPolling(false);
+      setIsAwaitingFinalStatus(false);
+    }
         } else {
            // Status is not GENERATING, but no pages found - this is an error state.
            console.error(`Review Page: Status is ${currentStatus}, but no pages found.`);
@@ -519,9 +519,9 @@ export default function ReviewPage() {
                   priority={true}
                 />
               ) : (
-                <div className="w-full h-full flex items-center justify-center">
-                  <span className="text-2xl font-semibold text-muted-foreground">Title Page</span>
-                </div>
+              <div className="w-full h-full flex items-center justify-center">
+                   <span className="text-2xl font-semibold text-muted-foreground">Title Page</span>
+              </div>
               )
             ) : currentPageData?.originalImageUrl ? (
               <Image
@@ -545,7 +545,7 @@ export default function ReviewPage() {
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground mr-2" />
               <span className="text-muted-foreground">Generating story text...</span>
             </div>
-          ) : (
+        ) : (
             <Textarea
               className="w-full h-40 mb-4 text-2xl text-center p-6 resize-none"
               value={currentPageData?.text ?? ''}

@@ -25,14 +25,23 @@ const openAIResponseSchema = z.record(
     z.string().min(1) // Value must be a non-empty string (the page text)
 );
 
+// Zod schema for the "Winkify" response structure
+const winkifiedResponseSchema = z.record(
+    z.string().regex(/^\d+$/), // Key is page number string "1", "2", etc.
+    z.object({ // Value is an object
+        text: z.string().min(1).describe("The story text for the page."), // Required text
+        illustrationNotes: z.string().nullable().describe("Illustration suggestion or null."), // Notes or null
+    })
+);
+
 // --- Job Processing Logic ---
 
 // Use the imported job data type definition (matches API route)
 type WorkerJobData = StoryGenerationJobData; // Use the imported type
 
-async function processStoryGenerationJob(job: Job<WorkerJobData>) {
+async function processStoryGenerationJob(job: Job<WorkerJobData>): Promise<{ message: string; bookId: string; finalStatus: BookStatus }> {
   // Extract data from the NEW job structure
-  const { bookId, userId, promptContext, storyPages } = job.data; 
+  const { bookId, userId, promptContext, storyPages, isWinkifyEnabled } = job.data;
   
   // Add null/undefined checks just in case
   if (!userId || !bookId || !promptContext || !storyPages || storyPages.length === 0) {
@@ -84,15 +93,18 @@ async function processStoryGenerationJob(job: Job<WorkerJobData>) {
         // We need the full Asset objects based on the assetIds
         // This assumes we query/pass them in jobData correctly
         assets: storyPages.map(p => ({ 
-            id: p.assetId, 
-            url: p.originalImageUrl, 
-            // We might need MORE asset fields if prompt function uses them
-        })).filter(a => a.id && a.url) as Asset[] // Filter out pages without assets and cast
+            id: p.assetId || '', // Provide default empty string for id if null
+            url: p.originalImageUrl,
+        })).filter(a => a.url) as unknown as Asset[], // Filter out pages without URLs, cast needed due to partial Asset
+        isWinkifyEnabled: isWinkifyEnabled // <<< Verify flag is passed here
     };
 
     // Log the input being sent to the prompt function for verification
     logger.info({ jobId: job.id, bookId }, "Constructing full story prompt...");
     const messageContent = createVisionStoryGenerationPrompt(fullPromptInput);
+
+    // Log the structured prompt being sent
+    logger.info({ jobId: job.id, bookId, messages: JSON.stringify(messageContent, null, 2) }, "OpenAI Story Prompt Messages:");
 
     // Step 2: Call OpenAI API ONCE
     logger.info({ jobId: job.id, bookId }, "Calling OpenAI for full story...");
@@ -131,12 +143,22 @@ async function processStoryGenerationJob(job: Job<WorkerJobData>) {
         }
     }
 
-    let storyJson: z.infer<typeof openAIResponseSchema>;
+    let parsedStoryData: Record<string, { text: string; illustrationNotes: string | null } | string>;
     try {
         const parsedJson = JSON.parse(jsonString);
-        // Use the original multi-page schema
-        storyJson = openAIResponseSchema.parse(parsedJson);
-        logger.info({ jobId: job.id, bookId, pageCount: Object.keys(storyJson).length }, 'Successfully parsed story JSON');
+        // Validate against the correct schema based on the flag
+        if (isWinkifyEnabled) {
+            parsedStoryData = winkifiedResponseSchema.parse(parsedJson);
+            logger.info({ jobId: job.id, bookId, pageCount: Object.keys(parsedStoryData).length }, 'Successfully parsed WINKIFIED story JSON');
+        } else {
+            // Assign to compatible type, ensuring illustrationNotes is null
+            const standardData = openAIResponseSchema.parse(parsedJson);
+            parsedStoryData = Object.entries(standardData).reduce((acc, [key, value]) => {
+                acc[key] = { text: value, illustrationNotes: null };
+                return acc;
+            }, {} as Record<string, { text: string; illustrationNotes: string | null }>);
+            logger.info({ jobId: job.id, bookId, pageCount: Object.keys(parsedStoryData).length }, 'Successfully parsed STANDARD story JSON');
+        }
     } catch (parseOrValidationError: any) {
         logger.error({ jobId: job.id, rawResult, jsonString, error: parseOrValidationError.message }, 'Failed to parse/validate OpenAI JSON response');
         const details = parseOrValidationError instanceof z.ZodError ? parseOrValidationError.errors : parseOrValidationError.message;
@@ -148,17 +170,32 @@ async function processStoryGenerationJob(job: Job<WorkerJobData>) {
     for (const page of storyPages) {
         // Find the text for this pageNumber in the parsed JSON
         const pageNumberStr = String(page.pageNumber);
-        const textContent = storyJson[pageNumberStr];
+        let textContent: string | undefined | null = null;
+        let notesContent: string | undefined | null = null;
+
+        const pageData = parsedStoryData[pageNumberStr];
+
+        if (typeof pageData === 'object' && pageData !== null) {
+            // Winkified format (or standard format mapped to winkified)
+            textContent = pageData.text;
+            notesContent = pageData.illustrationNotes;
+        }
 
         if (textContent) {
             logger.info({ jobId: job.id, pageId: page.pageId, textToSave: textContent }, "Preparing to update page text in DB");
+            // Prepare update data, including illustrationNotes if available
+            const updateData: Prisma.PageUpdateInput = {
+                text: textContent,
+                textConfirmed: false,
+            };
+            // Only add notes if winkify was enabled AND notes are not null/empty
+            if (isWinkifyEnabled && notesContent && notesContent.trim() !== '') {
+                updateData.illustrationNotes = notesContent;
+            }
             pageUpdatePromises.push(
                 db.page.update({
                     where: { id: page.pageId },
-                    data: {
-                        text: textContent, // Use extracted text
-                        textConfirmed: false,
-                    },
+                    data: updateData,
                 })
             );
         } else {
@@ -193,7 +230,7 @@ async function processStoryGenerationJob(job: Job<WorkerJobData>) {
     });
     logger.info({ jobId: job.id, bookId }, 'Book status updated to COMPLETED and token counts stored.');
 
-    return { message: `Processed ${pageUpdatePromises.length} pages.` }; // Return summary
+    return { message: `Processed ${pageUpdatePromises.length} pages.`, bookId: bookId, finalStatus: BookStatus.COMPLETED }; // Return summary
 
   } catch (error: any) {
     logger.error({ jobId: job.id, bookId, error: error.message }, 'Error processing story generation job');
