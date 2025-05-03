@@ -22,16 +22,14 @@ type Asset = {
 };
 type PageCount = 8 | 12 | 16;
 type DroppedAssets = Record<number | string, string | null>;
+// CORRECTLY Simplified EditorSettings type
 type EditorSettings = {
   bookTitle: string;
   childName: string;
   artStyle: string;
-  storyTone: string;
-  theme?: string;
-  people?: string;
-  objects?: string;
-  excitementElement?: string;
   isDoubleSpread: boolean;
+  isWinkifyEnabled: boolean;
+  // storyTone, theme, people, objects, excitementElement removed
 };
 
 // Main Page Component
@@ -43,11 +41,14 @@ export default function CreateBookPage() {
 
   const [uploadedAssets, setUploadedAssets] = useState<Asset[]>([]);
   const [droppedAssets, setDroppedAssets] = useState<DroppedAssets>({});
-  const [editorSettings, setEditorSettings] = useState<Partial<EditorSettings>>({ isDoubleSpread: false, theme: '', people: '', objects: '', excitementElement: '' });
+  // Initial state reflects simplified type
+  const [editorSettings, setEditorSettings] = useState<Partial<EditorSettings>>({ 
+    isDoubleSpread: false, 
+    isWinkifyEnabled: false
+  });
   const [pageCount, setPageCount] = useState<PageCount>(8);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
-  const [isWinkifyEnabled, setIsWinkifyEnabled] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -106,25 +107,22 @@ export default function CreateBookPage() {
     setIsGenerating(true);
     const TITLE_PAGE_ID = 'title-page'; // Use consistent ID
     
-    // Get asset IDs for STORY pages only (filter out title page asset)
     const orderedStoryAssetIds = Object.entries(droppedAssets)
         .filter(([key, value]) => key !== TITLE_PAGE_ID && value !== null)
         .sort(([keyA], [keyB]) => Number(keyA) - Number(keyB)) // Sort by numeric index
         .map(([, value]) => value as string);
 
-    const titlePageAssetId = droppedAssets[TITLE_PAGE_ID] || null; // Get title page asset if exists
-    const includeTitlePage = titlePageAssetId !== null; // Determine flag based on asset presence
+    const titlePageAssetId = droppedAssets[TITLE_PAGE_ID] || null;
+    const includeTitlePage = titlePageAssetId !== null;
 
-    // Validation
-    const requiredFields: (keyof Pick<EditorSettings, 'artStyle' | 'storyTone' | 'isDoubleSpread'>)[] = ['artStyle', 'storyTone', 'isDoubleSpread'];
+    // Validation (using simplified EditorSettings)
+    const requiredFields: (keyof Pick<EditorSettings, 'artStyle' | 'isDoubleSpread'>)[] = ['artStyle', 'isDoubleSpread'];
     const missingRequiredFields = requiredFields.filter(key => editorSettings[key] === undefined || editorSettings[key] === '');
     const missingOrEmptyBookTitle = !editorSettings.bookTitle?.trim();
     const missingOrEmptyChildName = !editorSettings.childName?.trim();
 
     let errorMessages: string[] = [];
-    // Modify asset check: require at least one image for the story pages
     if (orderedStoryAssetIds.length === 0) errorMessages.push("Please add at least one photo for the story pages."); 
-    // Check if pageCount matches number of story assets
     if (pageCount !== orderedStoryAssetIds.length) {
          errorMessages.push(`Please ensure the number of photos (${orderedStoryAssetIds.length}) matches the selected Page Count (${pageCount}) for story pages.`);
     }    
@@ -138,25 +136,17 @@ export default function CreateBookPage() {
         return;
     }
 
-    // Construct payload for the backend (adjust based on exact backend expectations)
+    // Construct payload for the backend (simplified)
     const requestPayload = {
         bookTitle: editorSettings.bookTitle!, 
         childName: editorSettings.childName!,
-        pageCount: pageCount, // Number of STORY pages
+        pageCount: pageCount, 
         artStyle: editorSettings.artStyle!,
-        storyTone: editorSettings.storyTone!,
         isDoubleSpread: editorSettings.isDoubleSpread!,
-        theme: editorSettings.theme || '',
-        // Send the droppedAssets state directly, which is Record<string, string | null>
-        // Note: Ensure the backend expects string keys for the numeric indices.
         droppedAssets: droppedAssets, 
-        // Optional fields that might be missing from the schema but were sent before:
-        people: editorSettings.people || '',
-        objects: editorSettings.objects || '',
-        excitementElement: editorSettings.excitementElement || '',
-        isWinkifyEnabled: isWinkifyEnabled,
+        isWinkifyEnabled: editorSettings.isWinkifyEnabled || false,
     };
-    console.log("Generating story with payload:", requestPayload);
+    console.log("Generating story with simplified payload:", requestPayload);
 
     try {
       const response = await fetch('/api/generate/story', {
@@ -176,29 +166,26 @@ export default function CreateBookPage() {
           console.log("Generation Job Accepted:", result);
           if (!result.bookId) throw new Error("API did not return a bookId");
 
-          // Prepare data for context using the original droppedAssets structure
           const finalAssetsForContext = Object.values(droppedAssets)
-             .filter((id): id is string => id !== null) // Filter out null/title
+             .filter((id): id is string => id !== null) 
              .map(id => uploadedAssets.find(asset => asset.id === id))
              .filter((asset): asset is Asset => asset !== undefined);
           
+          // Simplified settings for context using the CORRECTLY simplified EditorSettings type
           const finalSettingsForContext: EditorSettings & { pageLength: PageCount } = {
              bookTitle: requestPayload.bookTitle,
              childName: requestPayload.childName,
              artStyle: requestPayload.artStyle,
-             storyTone: requestPayload.storyTone,
-             theme: requestPayload.theme,
              isDoubleSpread: requestPayload.isDoubleSpread,
-             pageLength: requestPayload.pageCount, // Keep as user-selected story page count
+             isWinkifyEnabled: requestPayload.isWinkifyEnabled,
+             pageLength: requestPayload.pageCount, 
           };
 
-          // Set bookData - We expect the review page to fetch the full data including Title page
           setBookData({
             bookId: result.bookId,
-            assets: finalAssetsForContext, // Assets only for story pages
-            pages: null, // Review page will fetch
+            assets: finalAssetsForContext, 
+            pages: null, 
             settings: finalSettingsForContext,
-            // Add status if available in result
             status: result.status || BookStatus.GENERATING 
           });
 
@@ -216,8 +203,7 @@ export default function CreateBookPage() {
       setIsGenerating(false);
     }
   };
-
-  // Need to define handleRemoveAsset here for state update
+  
   const handleRemoveAsset = (idToRemove: number | string) => {
      setDroppedAssets(prev => {
          const newState = { ...prev };
@@ -257,28 +243,10 @@ export default function CreateBookPage() {
           pageCount={pageCount}
           onPageCountChange={setPageCount}
           styleLibrary={STYLE_LIBRARY}
+          onGenerateStory={handleGenerateStory}
+          isGenerating={isGenerating}
+          isUploading={isUploading}
       />
-
-      <div className="flex items-center space-x-2 mt-4 mb-6 justify-end">
-          <Label htmlFor="winkify-toggle" className="cursor-pointer text-muted-foreground">
-              ✨ Add extra creative flair to illustrations?
-          </Label>
-          <Switch
-              id="winkify-toggle"
-              checked={isWinkifyEnabled}
-              onCheckedChange={setIsWinkifyEnabled}
-          />
-      </div>
-
-      <div className="mt-6 flex justify-end">
-         <Button onClick={handleGenerateStory} disabled={isGenerating || isUploading}>
-            {isGenerating ? (
-              <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Generating...</>
-            ) : (
-              'Generate & Review Story'
-            )}
-          </Button>
-      </div>
     </div>
   );
 }

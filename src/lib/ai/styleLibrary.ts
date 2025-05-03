@@ -4,104 +4,94 @@
 // Import logger (assuming relative path works, adjust if needed)
 import logger from '@/lib/logger';
 
+// Define the new style library
 const STYLE_LIBRARY = {
-  cartoonBrights: {
-    label: 'Cartoon Brights',
-    descriptor:
-      'bold flat shading, thick 6-px clean black outlines, smooth digital vector look, sample all colours and overall layout directly from the reference photo',
+  anime: {
+    label: 'Anime',
+    referenceImageUrl: 'https://res.cloudinary.com/storywink/image/upload/v1746284318/Anime_USETHIS_qmgm0i.png',
   },
-  softWatercolor: {
-    label: 'Soft Watercolor',
-    descriptor:
-      'loose watercolor wash on cold-press paper, no hard outlines, soft edge bleeding, subtle paper texture, reuse the hues and composition of the reference photo',
+  pen: {
+    label: 'Pen',
+    referenceImageUrl: 'https://res.cloudinary.com/storywink/image/upload/v1746283996/pen_USETHIS_nqfnel.png',
   },
-  crayonScribble: {
-    label: 'Crayon Scribble',
-    descriptor:
-      'wax-crayon strokes with visible grain, wobbly hand-drawn outlines, uneven fill, child-like energy, colours should be sampled from the reference photo',
+  watercolor: {
+    label: 'Watercolor',
+    referenceImageUrl: 'https://res.cloudinary.com/storywink/image/upload/v1746284308/Watercolor_USETHIS3_n2giqf.png',
   },
-  digitalGouache: {
-    label: 'Digital Gouache',
-    descriptor:
-      'opaque gouache strokes with dry-brush texture, chunky shapes, flat perspective, soft paper tooth, colour choices mirror the reference photo',
+  modern: {
+    label: 'Modern',
+    referenceImageUrl: 'https://res.cloudinary.com/storywink/image/upload/v1746283996/modern_USETHIS_dukxgz.png',
   },
-  paperCutCollage: {
-    label: 'Paper-Cut Collage',
-    descriptor:
-      'layered coloured-paper shapes with subtle drop shadows, crisp scissor edges, slight 3-D feel, replicate the colour palette and subject placement from the reference photo',
+  pencil: {
+    label: 'Pencil',
+    referenceImageUrl: 'https://res.cloudinary.com/storywink/image/upload/v1746283997/pencil_USEHTIS_htcslm.png',
   },
-  pixelQuest: {
-    label: 'Pixel Quest',
-    descriptor:
-      'retro 16-bit pixel art, 1-px black outlines, visible dithering, blocky 64x64 grid then upscaled, derive sprite colours and layout from the reference photo', // Corrected 64x64
-  },
-  kawaiiMinimal: {
-    label: 'Kawaii Minimal',
-    descriptor:
-      'super-deformed cute style, big round eyes, 2-px pastel outlines, minimal details, soft gradients, take colours and object positions from the reference photo',
-  },
-  chalkboard: {
-    label: 'Chalkboard',
-    descriptor:
-      'white chalk strokes on dusty dark-green chalkboard, slightly smeared edges, hand lettering feel, chalk dust particles; copy shapes from the reference photo',
+  bwPlusOne: { // Using camelCase for the key
+    label: 'B&W +1 Color',
+    referenceImageUrl: 'https://res.cloudinary.com/storywink/image/upload/v1746283997/bw_1col_USETHIS_pvbovo.png',
+    description: "As per the reference image, black and white EXCEPT exactly one prominent object (not people) of the model's choosing",
   },
 } as const;
 
+// Type for the structure of each style object
+interface StyleDefinition {
+  label: string;
+  referenceImageUrl: string;
+  description?: string | null; // Added optional description field
+}
+
+// Update StyleKey type to reflect the new keys
 type StyleKey = keyof typeof STYLE_LIBRARY;
 
+// Ensure the library conforms to the type (for safety, though `as const` helps)
+const TypedStyleLibrary: Record<StyleKey, StyleDefinition> = STYLE_LIBRARY;
+
+// Simplified Interface - Removed theme and tone
 interface IllustrationPromptOptions {
   style: StyleKey;
-  theme: string | null;
-  tone: string | null;
   pageText: string | null;
   bookTitle: string | null;
   isTitlePage?: boolean;
-  illustrationNotes?: string | null;
-  isWinkifyEnabled?: boolean; // Include Winkify flag
+  illustrationNotes?: string | null; // For Winkify or general notes
+  isWinkifyEnabled?: boolean;
 }
 
-const MAX_PROMPT_CHARS = 30000; // gpt-image-1 safe ceiling (Adjust if needed for actual model)
+const MAX_PROMPT_CHARS = 30000; // gpt-image-1 safe ceiling (Adjust if needed)
 
+// Rewritten function using simplified options
 export function createIllustrationPrompt(
   opts: IllustrationPromptOptions
 ): string {
-  // **** TEMP LOG: Log received options at INFO level ****
   logger.info({ optionsReceived: opts }, `[createIllustrationPrompt] Received opts`);
-  // ***************************************************
 
-  const styleDesc = STYLE_LIBRARY[opts.style]?.descriptor ??
-    STYLE_LIBRARY.cartoonBrights.descriptor;
+  // Get the style definition including the optional description
+  const styleDefinition = TypedStyleLibrary[opts.style];
+  const styleDescription = styleDefinition?.description;
 
-  // Base instructions common to both
+  // Base instructions defining the roles of the two input images
   const base = [
-    `Style: ${styleDesc}.`,
-    'Preserve every face, pose and background layout from the reference exactly.',
-    'Maintain original colour palette. White balance 6000 K.',
+    `Task: Apply the artistic style from the second input image (Style Reference) to the content of the first input image (Content Source).`,
+    `Content Source (Image 1): Use this image EXCLUSIVELY for all content elements: characters, objects, faces, poses, and the overall background layout. Preserve these content elements and their composition exactly as they appear in Image 1. Do not add, remove, or significantly alter any content from Image 1.`,
+    `Style Source (Image 2): Use this image PURELY as the visual reference for the artistic style. Apply its color palette, texture, line work, shading, rendering techniques, and overall aesthetic faithfully to the content derived from Image 1. The style should ONLY come from Image 2.${styleDescription ? ` Specific Style Notes: ${styleDescription}` : ''}`,
   ];
 
   // Winkify specific instructions (added only if enabled and notes exist)
   const winkBits = opts.isWinkifyEnabled && opts.illustrationNotes
     ? [
-        'Add subtle dynamic effects (zoom lines, sparkles, motion blur) to enhance action without altering characters or faces. Effects should cover less than 20% of the scene.', // Fixed <= symbol
-        `Creative effect: ${opts.illustrationNotes}.`,
+        'Subtle Dynamic Effects: Enhance the action with effects like zoom lines, sparkles, or motion blur, covering less than 20% of the scene. These effects should NOT alter the core characters, faces, or poses derived from Image 1. Apply effects in the style derived from Image 2.',
+        `Specific Effect Request: ${opts.illustrationNotes}.`,
       ]
     : [];
 
-  // Page-specific instructions (Title vs Story)
+  // Page-specific instructions (Title vs Story) - Simplified
   const titleBits = opts.isTitlePage
     ? [ // Title Page specific instructions
-        `Integrate the book title "${opts.bookTitle}" in-scene, highly legible, not blocking key details.`,
-        opts.theme && `Theme: ${opts.theme}.`,
-        opts.tone && `Mood: ${opts.tone}.`,
-        'Create a captivating 1024x1024 cover image.', // Corrected size format
-        // Ensure title page doesn't get text cloud instructions
+        `Book Title Integration: Integrate the book title "${opts.bookTitle}" naturally within the scene. Ensure it is highly legible and does not obscure key details from Image 1 content. The title's visual style (font, color, placement) should be inspired by text elements or the overall aesthetic found in the Style Source (Image 2).`,,
       ]
     : [ // Story Page specific instructions
-        'Add a soft-edged white text container cloud (70% opacity) for the narrative text; ensure it does not cover faces (note: NOT A SPEECH CLOUD/BUBBLE).', // Clarified it's not a speech bubble
-        `Inside the cloud print: "${(opts.pageText ?? '').trim()}" in Comic Neue Bold navy (#1A2A6B) ≈80 pt, exactly once.`, // Corrected font name, size symbol
-        `Ensure the entire sentence fits comfortably within the image with adequate padding from the edges -- fully visible, and not cut off by image edges.`, // NEW layout constraint
-        opts.tone && `Mood: ${opts.tone}.`,
-        // Add other story-page specific needs here if any
+        // Removed text cloud logic, direct replication instruction
+        `Text Rendering: Render the following text exactly once within the image: "${(opts.pageText ?? '').trim()}". Replicate the exact font style, size, color, and positioning characteristics demonstrated by the text elements present in the Style Source (Image 2). Ensure all provided text is fully visible and not cut off.`,
+        // tone removed
       ];
 
   // Combine all parts: Base + Winkify (if applicable) + Page-Specific
@@ -110,13 +100,16 @@ export function createIllustrationPrompt(
     .join(' '); // Join with spaces
 
   // Truncate if necessary
-  return prompt.length > MAX_PROMPT_CHARS
+  const finalPrompt = prompt.length > MAX_PROMPT_CHARS
     ? prompt.slice(0, MAX_PROMPT_CHARS - 1) + '…' // Use ellipsis
     : prompt;
+
+  logger.info({ finalPromptLength: finalPrompt.length }, "[createIllustrationPrompt] Generated final prompt"); // Log length
+  return finalPrompt;
 }
 
 // Exports for other modules
-export { STYLE_LIBRARY };
-export type { StyleKey, IllustrationPromptOptions };
+export { STYLE_LIBRARY, TypedStyleLibrary };
+export type { StyleKey, IllustrationPromptOptions, StyleDefinition };
 
-// Remove CommonJS export block 
+// Removed CommonJS export block comment 

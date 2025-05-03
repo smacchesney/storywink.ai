@@ -11,8 +11,7 @@ const illustrationRequestSchema = z.object({
   bookId: z.string().cuid({ message: "Valid Book ID (CUID) is required" }),
 });
 
-// Re-define the structure of the job data needed by the ILLUSTRATION WORKER
-// (Should match the worker's expectation)
+// Re-define the structure of the job data needed by the ILLUSTRATION WORKER (Simplified)
 export interface IllustrationGenerationJobData {
   userId: string;
   bookId: string;
@@ -20,8 +19,6 @@ export interface IllustrationGenerationJobData {
   pageNumber: number;
   text: string | null;
   artStyle: string | null | undefined;
-  tone: string | null | undefined;
-  theme: string | null | undefined;
   bookTitle: string | null | undefined;
   isTitlePage: boolean;
   illustrationNotes: string | null | undefined;
@@ -58,7 +55,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    // Step 1: Validate Book Ownership and Status
+    // Step 1: Validate Book Ownership and Status (Simplified select)
     console.info({ userId, bookId: requestData.bookId }, 'Validating book...');
     const book = await prisma.book.findUnique({
       where: {
@@ -69,10 +66,8 @@ export async function POST(request: Request) {
         id: true,
         title: true,
         artStyle: true,
-        tone: true,
-        theme: true,
         status: true,
-        isWinkifyEnabled: true, // <<< Verify this flag is selected
+        isWinkifyEnabled: true, // Keep this flag
         pages: {
           orderBy: { pageNumber: 'asc' },
           select: { // Select all fields needed for the job
@@ -82,7 +77,6 @@ export async function POST(request: Request) {
             originalImageUrl: true,
             isTitlePage: true,
             illustrationNotes: true,
-            // Avoid fetching generatedImageUrl here if not needed
           }
         }
       }
@@ -93,14 +87,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Book not found or access denied.' }, { status: 404 });
     }
 
-    // Validate status (e.g., must be COMPLETED after text gen)
-    // Ideally, story generation should be COMPLETED before illustration starts
     if (book.status !== BookStatus.COMPLETED) {
       console.warn({ userId, bookId: requestData.bookId, status: book.status }, 'Book not in correct state for illustration generation.');
       return NextResponse.json({ error: `Book must be in COMPLETED state to start illustration (current: ${book.status})` }, { status: 409 }); // Conflict status
     }
 
-    // Check if pages exist
     if (!book.pages || book.pages.length === 0) {
        console.error({ userId, bookId: book.id }, 'No pages found for this book to illustrate.');
        return NextResponse.json({ error: 'Cannot illustrate a book with no pages.' }, { status: 400 });
@@ -115,9 +106,9 @@ export async function POST(request: Request) {
     });
     console.info({ userId, bookId: book.id }, 'Book status updated to ILLUSTRATING.');
 
-    // Step 3: Create child job definitions for each page
+    // Step 3: Create child job definitions for each page (Simplified data)
     const pageChildren = book.pages.map((page) => {
-        // Build the data needed specifically by the illustration worker
+        // Build the simplified data needed specifically by the illustration worker
         const illustrationJobData: IllustrationGenerationJobData = {
             userId: userId,
             bookId: book.id,
@@ -125,34 +116,30 @@ export async function POST(request: Request) {
             pageNumber: page.pageNumber,
             text: page.text,
             artStyle: book.artStyle,
-            tone: book.tone,
-            theme: book.theme,
             bookTitle: book.title,
-            isWinkifyEnabled: book.isWinkifyEnabled || false, // <<< Verify this flag is added to job data
+            isWinkifyEnabled: book.isWinkifyEnabled || false, // Pass flag
             isTitlePage: page.isTitlePage || false,
             illustrationNotes: page.illustrationNotes,
             originalImageUrl: page.originalImageUrl,
         };
-        // Use unique job name per page to potentially allow resuming/tracking
         const jobName = `generate-illustration-${book.id}-p${page.pageNumber}`;
         logger.info({ userId, bookId: book.id, pageId: page.id, pageNumber: page.pageNumber }, `Queueing job: ${jobName}`);
         return {
             name: jobName,
             queueName: QueueName.IllustrationGeneration, // Target the existing worker queue
             data: illustrationJobData,
-            opts: { // Options for each page job
+            opts: { 
                 attempts: 3,
                 backoff: { type: 'exponential', delay: 10000 }, 
                 removeOnComplete: { count: 1000 },
                 removeOnFail: { count: 5000 },
-                // Flow options:
-                failParentOnFailure: false, // Don't fail the whole book for one page (allow PARTIAL)
-                removeDependencyOnFailure: true // Allow parent to proceed even if a child fails
+                failParentOnFailure: false, 
+                removeDependencyOnFailure: true 
             }
         };
     });
 
-    // Step 4: Add the flow (parent job + children) atomically
+    // Step 4: Add the flow (parent job + children) atomically (remains the same)
     const finalizeJobData: BookFinalizeJobData = {
         bookId: book.id,
         userId: userId,
@@ -171,12 +158,13 @@ export async function POST(request: Request) {
 
     logger.info({ userId, bookId: book.id, childJobCount: pageChildren.length }, 'Added illustration flow to queue (parent + children)');
 
-    // Step 5: Return confirmation
+    // Step 5: Return confirmation (remains the same)
     return NextResponse.json({ message: `Illustration flow initiated for ${pageChildren.length} pages.`, bookId: book.id }, { status: 202 });
 
   } catch (error: any) {
     console.error({ userId, bookId: requestData.bookId, error: error.message }, 'Error during illustration job queuing or validation');
-    // Attempt to revert status if queuing failed after status update?
-    // This is complex; maybe the worker should handle initial status checks.
+    // Attempt to revert status - maybe move status update to finalize job?
+    // For now, just log the error and return 500
+    return NextResponse.json({ error: error.message || 'An unexpected error occurred' }, { status: 500 });
   }
 } 

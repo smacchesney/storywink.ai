@@ -2,12 +2,12 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Label } from "@/components/ui/label";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+// import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"; // Removed
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import RoughButton from "@/components/ui/rough-button";
-import { Textarea } from "@/components/ui/textarea";
+// import { Textarea } from "@/components/ui/textarea"; // Removed
 import {
   Tooltip,
   TooltipContent,
@@ -25,69 +25,61 @@ import {
   UniqueIdentifier
 } from '@dnd-kit/core';
 import Image from 'next/image';
-import { X, ArrowLeft } from 'lucide-react'; // Removed unused icons
+import { X, ArrowLeft, Loader2, Upload } from 'lucide-react';
 import { CSS } from '@dnd-kit/utilities';
 import {
   Panel,
   PanelGroup,
-  // PanelResizeHandle removed
 } from "react-resizable-panels";
-import { cn } from "@/lib/utils"; // Assuming cn utility exists
+import { cn } from "@/lib/utils";
 import { useRouter } from 'next/navigation';
-import RoughBorder from '@/components/ui/rough-border'; // Re-import RoughBorder
-import RoughInputWrapper from "@/components/ui/rough-input-wrapper"; // Import the wrapper
+import RoughBorder from '@/components/ui/rough-border';
+import RoughInputWrapper from "@/components/ui/rough-input-wrapper";
+import StyleSelector from './style-selector';
+import type { StyleDefinition } from '@/lib/ai/styleLibrary';
 
 // --- Style Library Type (Mirroring structure from styleLibrary.ts) ---
-// Define locally as importing types from CJS can be tricky
-type StyleOption = {
-  label: string;
-  descriptor: string;
-};
-type StyleLibrary = Record<string, StyleOption>;
+// type StyleOption = {
+//   label: string;
+// }; // No longer needed here
+type StyleLibrary = Record<string, StyleDefinition>; // Use the detailed type
 // ---
 
-// --- Type Definitions (Align with CreateBookPage and Zod Schema) ---
+// --- Type Definitions (Simplified) ---
 type Asset = {
   id: string;
   thumbnailUrl: string;
 };
 type DroppedAssets = Record<number | string, string | null>;
 type PageCount = 8 | 12 | 16;
+// Simplified local EditorSettings type
 type EditorSettings = {
   bookTitle: string;
   childName: string;
-  // pageLength removed as it's handled by pageCount prop
   artStyle: string;
-  storyTone: string;
-  // typography: string; // Removed/Commented out if not needed
-  theme?: string;
-  people?: string; // Use key matching Zod schema
-  objects?: string; // Use key matching Zod schema
-  excitementElement?: string; // Use key matching Zod schema
+  // storyTone removed
+  // theme removed
+  // people removed
+  // objects removed
+  // excitementElement removed
   isDoubleSpread: boolean;
+  isWinkifyEnabled: boolean;
 };
 // --- End Type Definitions ---
 
-// Remove local artStyleOptions
-// const artStyleOptions = [...];
-
-// Story Tone options can remain local if not defined elsewhere
-const storyToneOptions = [
-  { id: 'tone1', label: 'Playful & Fun' },
-  { id: 'tone2', label: 'Gentle & Cozy' },
-  { id: 'tone3', label: 'Adventurous' },
-];
+// Remove storyToneOptions
+// const storyToneOptions = [...];
 
 // --- Constants --- 
 const TITLE_PAGE_ID = 'title-page'; // Unique ID for the title slot
 
 // Droppable Grid Cell Component
 interface DroppableCellProps {
-  id: number | string; // Changed from index to id
+  id: number | string; 
   droppedAssetId: string | null;
   assets: Asset[];
-  onRemove: (id: number | string) => void; // Changed from index to id
-  isTitle?: boolean; // Optional flag for styling/text
+  onRemove: (id: number | string) => void;
+  isTitle?: boolean; 
 }
 
 const DroppableCell: React.FC<DroppableCellProps> = ({ id, droppedAssetId, assets, onRemove, isTitle = false }) => {
@@ -179,9 +171,15 @@ const DroppableCell: React.FC<DroppableCellProps> = ({ id, droppedAssetId, asset
         </>
       ) : (
         <span className="text-sm text-muted-foreground z-10"> 
-          {isTitle ? 'Title Page' : `Page ${Number(id) + 1}`}
+          {/* This text is hidden when an image is dropped */}
+          {/* {isTitle ? 'Title Page' : `Page ${Number(id) + 1}`} */}
         </span>
       )}
+
+      {/* Persistent Page Label at the bottom */}
+      <div className="absolute bottom-1 left-1 z-20 bg-black/60 text-white text-xs font-medium px-1.5 py-0.5 rounded-sm pointer-events-none">
+        {isTitle ? 'Front Cover' : `Page ${Number(id) + 1}`}
+      </div>
     </div>
   );
 }
@@ -190,42 +188,47 @@ const DroppableCell: React.FC<DroppableCellProps> = ({ id, droppedAssetId, asset
 interface StoryboardEditorProps {
   initialAssets?: Asset[];
   onTriggerUpload?: () => void;
+  isUploading?: boolean;
   droppedAssets: DroppedAssets;
   onDroppedAssetsChange: (newDroppedAssets: DroppedAssets) => void;
-  editorSettings: Partial<EditorSettings>;
+  editorSettings: Partial<EditorSettings>; // Uses simplified type
   onEditorSettingsChange: (newSettings: Partial<EditorSettings>) => void;
-  pageCount: PageCount; // Added prop
-  onPageCountChange: (count: PageCount) => void; // Added prop
-  styleLibrary: StyleLibrary; // Add styleLibrary prop
+  pageCount: PageCount;
+  onPageCountChange: (count: PageCount) => void;
+  styleLibrary: StyleLibrary;
+  onGenerateStory: () => Promise<void>;
+  isGenerating: boolean;
 }
 // --- End Props Interface --- 
 
 const StoryboardEditor: React.FC<StoryboardEditorProps> = ({
   initialAssets = [],
   onTriggerUpload,
+  isUploading = false,
   droppedAssets,
   onDroppedAssetsChange,
-  editorSettings,
+  editorSettings, // Receives simplified settings
   onEditorSettingsChange,
   pageCount,
   onPageCountChange,
-  styleLibrary // Destructure the new prop
+  styleLibrary,
+  onGenerateStory,
+  isGenerating
 }) => {
-  const panelGroupRef = useRef<HTMLDivElement>(null); // Add ref back
-  const [panelGroupDimensions, setPanelGroupDimensions] = useState({ width: 0, height: 0 }); // Add state back
+  const panelGroupRef = useRef<HTMLDivElement>(null); 
+  const [panelGroupDimensions, setPanelGroupDimensions] = useState({ width: 0, height: 0 }); 
 
-  // --- Internal State (Only for component-specific UI state) --- 
+  // --- Internal State --- 
   const [assets, setAssets] = useState<Asset[]>(initialAssets);
   const [activeId, setActiveId] = useState<UniqueIdentifier | null>(null);
   const [activeDragData, setActiveDragData] = useState<any>(null);
-  // Removed internal state for: pageCount, droppedAssets, title, childName, artStyle, etc.
 
-  // --- Derived State (Uses props) --- 
-  const gridItemsCount = pageCount; // Use prop
+  // --- Derived State --- 
+  const gridItemsCount = pageCount;
   const gridItems = Array.from({ length: gridItemsCount }, (_, i) => i);
   const usedAssetIds = useMemo(() => 
     Object.values(droppedAssets).filter(id => id !== null) as string[]
-  , [droppedAssets]); // Use prop
+  , [droppedAssets]);
   const activeAsset = useMemo(() => {
       if (!activeId) return null;
       if (activeDragData?.origin === 'grid') return activeDragData.asset as Asset | null;
@@ -236,7 +239,7 @@ const StoryboardEditor: React.FC<StoryboardEditorProps> = ({
     setAssets(initialAssets);
   }, [initialAssets]);
 
-  // Add effect back for PanelGroup dimensions
+  // Effect for PanelGroup dimensions
   useEffect(() => {
     if (panelGroupRef.current) {
       const { offsetWidth, offsetHeight } = panelGroupRef.current;
@@ -255,7 +258,7 @@ const StoryboardEditor: React.FC<StoryboardEditorProps> = ({
     }
   }, []);
 
-  // --- Event Handlers (Use callback props) --- 
+  // --- Event Handlers --- 
   const handleDragStart = (event: DragStartEvent) => {
     setActiveId(event.active.id);
     setActiveDragData(event.active.data.current); 
@@ -269,36 +272,28 @@ const StoryboardEditor: React.FC<StoryboardEditorProps> = ({
 
     if (!over || !active || !activeData) return; 
 
-    const targetId = over.id as (number | string); // Can be number or 'title-page'
-    const sourceId = activeData?.sourceId as (number | string | null); // Can be number, 'title-page', or null (from library)
+    const targetId = over.id as (number | string);
+    const sourceId = activeData?.sourceId as (number | string | null);
     const origin = activeData?.origin as (string | null);
 
-    if (sourceId === targetId) return; // No change if dropped on itself
+    if (sourceId === targetId) return;
 
     const newDroppedAssets = { ...droppedAssets };
 
-    // Case 1: Drag from Library to a Cell (Title or Story)
     if (origin !== 'grid') {
       const assetIdToDrop = typeof active.id === 'string' ? active.id : null;
       if (assetIdToDrop) {
-          // If target already has an item, store it temporarily
           const displacedAssetId = newDroppedAssets[targetId] || null;
-          // Place the new asset
           newDroppedAssets[targetId] = assetIdToDrop;
-          // If sourceId was a grid cell (which it isn't here, but for completeness)
-          // if (sourceId !== null && sourceId !== TITLE_PAGE_ID) {
-          //    newDroppedAssets[sourceId] = displacedAssetId; // Put displaced item back
-          // } else if (sourceId === TITLE_PAGE_ID) { ... }
       }
     } 
-    // Case 2: Drag from Grid Cell to Grid Cell (Title or Story)
     else if (origin === 'grid' && sourceId !== null) {
         const draggedAssetId = activeData.asset?.id || null;
         const assetIdInTarget = newDroppedAssets[targetId] || null;
 
         if (draggedAssetId) {
-            newDroppedAssets[targetId] = draggedAssetId; // Move dragged to target
-            newDroppedAssets[sourceId] = assetIdInTarget; // Move target's content (or null) to source
+            newDroppedAssets[targetId] = draggedAssetId;
+            newDroppedAssets[sourceId] = assetIdInTarget;
         }
     }
 
@@ -326,15 +321,14 @@ const StoryboardEditor: React.FC<StoryboardEditorProps> = ({
     });
   };
 
-  // --- Render Logic (Use props for values and callbacks for changes) --- 
+  // --- Render Logic --- 
   return (
     <div className="flex flex-col h-[calc(100vh-var(--site-header-height)-var(--site-footer-height)-100px)] w-full">
       <DndContext onDragStart={handleDragStart} onDragEnd={handleDragEnd} onDragCancel={handleDragCancel}>
-        {/* Re-add wrapper div and ref for PanelGroup border */}
         <div ref={panelGroupRef} className="relative flex-grow w-full">
           <PanelGroup 
             direction="horizontal" 
-            className="flex-grow w-full h-full bg-muted/20" // Ensure it fills the wrapper
+            className="flex-grow w-full h-full bg-muted/20" 
             autoSaveId="storyboardEditorLayout-v2" 
           >
             {/* Center Area Panel */}
@@ -348,7 +342,7 @@ const StoryboardEditor: React.FC<StoryboardEditorProps> = ({
                   className="flex items-center justify-center p-4 overflow-auto bg-background"
                 >
                   <div className="flex flex-wrap justify-center items-start gap-4 w-full p-4">
-                    {/* --- Title Cell (Now Droppable/Draggable) --- */}
+                    {/* --- Title Cell --- */}
                     <DroppableCell
                       id={TITLE_PAGE_ID}
                       droppedAssetId={droppedAssets[TITLE_PAGE_ID] || null}
@@ -356,12 +350,11 @@ const StoryboardEditor: React.FC<StoryboardEditorProps> = ({
                       onRemove={finalRemoveHandler}
                       isTitle={true}
                     />
-
-                    {/* --- Droppable Story Page Cells --- */}
+                    {/* --- Story Page Cells --- */}
                     {gridItems.map((_, index) => (
                       <DroppableCell
                         key={index} 
-                        id={index} // Pass numeric index as id
+                        id={index} 
                         droppedAssetId={droppedAssets[index] || null}
                         assets={assets}
                         onRemove={finalRemoveHandler}
@@ -371,121 +364,108 @@ const StoryboardEditor: React.FC<StoryboardEditorProps> = ({
                 </Panel>
                 {/* Bottom Tray Panel (Asset Library) */}
                 <Panel id="bottom-tray" defaultSize={15} minSize={10} maxSize={20} className="flex-shrink-0 border-t bg-muted/40 overflow-hidden p-2">
-                  <AssetLibrary assets={assets} usedAssetIds={usedAssetIds} onTriggerUpload={onTriggerUpload}/>
+                  <AssetLibrary 
+                    assets={assets} 
+                    usedAssetIds={usedAssetIds} 
+                    onTriggerUpload={onTriggerUpload} 
+                    isUploading={isUploading}
+                  />
                 </Panel>
               </PanelGroup>
             </Panel>
 
-            {/* Right Panel - Let it resize, but constrain content */}
+            {/* Right Panel - Simplified Controls */}
             <Panel 
               id="right-controls" 
               className="!overflow-y-auto p-4 bg-muted/40 border-l hidden md:block" 
             >
-              <div className="space-y-6"> 
-                 <div className="space-y-2">
-                   <h4 className="text-sm font-semibold text-foreground mb-1">Book Title</h4>
-                   <RoughInputWrapper>
-                     <Input 
-                       id="bookTitle" 
-                       placeholder="e.g., The Magical Adventure" 
-                       value={editorSettings.bookTitle || ''} 
-                       onChange={(e) => handleSettingChange('bookTitle', e.target.value)} 
-                       className="border-none focus-visible:ring-0 focus-visible:ring-offset-0"
-                     />
-                   </RoughInputWrapper>
-                 </div>
-                 <div className="space-y-2">
-                   <h4 className="text-sm font-semibold text-foreground mb-1">Child's Name</h4>
-                   <RoughInputWrapper>
-                     <Input 
-                       id="childName" 
-                       placeholder="e.g., Alex" 
-                       value={editorSettings.childName || ''} 
-                       onChange={(e) => handleSettingChange('childName', e.target.value)} 
-                       className="border-none focus-visible:ring-0 focus-visible:ring-offset-0"
-                     />
-                   </RoughInputWrapper>
-                 </div>
-                 <div className="space-y-2">
-                   <TooltipProvider><Tooltip><TooltipTrigger asChild>
-                      <h4 className="text-sm font-semibold text-foreground mb-1">Page Count</h4>
-                   </TooltipTrigger><TooltipContent><p>Total pages (8, 12, or 16).</p></TooltipContent></Tooltip></TooltipProvider>
-                   <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(60px, 1fr))' }}>
-                     {[8, 12, 16].map(count => (
-                        <RoughButton 
-                          key={count} 
-                          variant={pageCount === count ? "default" : "outline"} 
-                          size="sm"
-                          onClick={() => onPageCountChange(count as PageCount)} 
-                          type="button"
-                          isSelected={pageCount === count}
-                        >
-                          {count}
-                        </RoughButton>
-                      ))}
+              <div className="space-y-6 flex flex-col h-full">
+                <div className="flex-grow space-y-6">
+                   {/* Book Title Input */}
+                   <div className="space-y-2">
+                     <h4 className="text-sm font-semibold text-foreground mb-1">Book Title</h4>
+                     <RoughInputWrapper>
+                       <Input 
+                         id="bookTitle" 
+                         placeholder="e.g., The Magical Adventure" 
+                         value={editorSettings.bookTitle || ''} 
+                         onChange={(e) => handleSettingChange('bookTitle', e.target.value)} 
+                         className="border-none focus-visible:ring-0 focus-visible:ring-offset-0"
+                       />
+                     </RoughInputWrapper>
                    </div>
-                 </div>
-                 <div className="space-y-2 pt-4 border-t mt-4">
-                   <TooltipProvider><Tooltip><TooltipTrigger asChild>
-                      <h4 className="text-sm font-semibold text-foreground mb-1">Art Style</h4>
-                   </TooltipTrigger><TooltipContent><p>Visual style for illustrations.</p></TooltipContent></Tooltip></TooltipProvider>
-                   <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))' }}>
-                      {Object.entries(styleLibrary).map(([styleKey, styleOption]) => (
-                        <RoughButton 
-                          key={styleKey} 
-                          variant={editorSettings.artStyle === styleKey ? "default" : "outline"} 
-                          size="sm" 
-                          onClick={() => handleSettingChange('artStyle', styleKey)} 
-                          type="button"
-                          isSelected={editorSettings.artStyle === styleKey}
-                        >
-                          {styleOption.label}
-                        </RoughButton>
-                      ))}
+                   {/* Child's Name Input */}
+                   <div className="space-y-2">
+                     <h4 className="text-sm font-semibold text-foreground mb-1">Child's Name</h4>
+                     <RoughInputWrapper>
+                       <Input 
+                         id="childName" 
+                         placeholder="e.g., Alex" 
+                         value={editorSettings.childName || ''} 
+                         onChange={(e) => handleSettingChange('childName', e.target.value)} 
+                         className="border-none focus-visible:ring-0 focus-visible:ring-offset-0"
+                       />
+                     </RoughInputWrapper>
                    </div>
-                 </div>
-                 <div className="space-y-2">
-                   <h4 className="text-sm font-semibold text-foreground mb-1">Story Tone</h4>
-                   <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))' }}>
-                      {storyToneOptions.map(tone => (
-                        <RoughButton 
-                          key={tone.id} 
-                          variant={editorSettings.storyTone === tone.id ? "default" : "outline"} 
-                          size="sm" 
-                          onClick={() => handleSettingChange('storyTone', tone.id)} 
-                          type="button"
-                          isSelected={editorSettings.storyTone === tone.id}
-                        >
-                          {tone.label}
-                        </RoughButton>
-                      ))}
-                   </div>
-                 </div>
-                 <div className="space-y-2">
-                   <h4 className="text-sm font-semibold text-foreground mb-1">Theme / Core Subject</h4>
-                   <RoughInputWrapper>
-                     <Input 
-                       id="theme" 
-                       placeholder="e.g., Bedtime, Friendship" 
-                       value={editorSettings.theme || ''} 
-                       onChange={(e) => handleSettingChange('theme', e.target.value)} 
-                       className="border-none focus-visible:ring-0 focus-visible:ring-offset-0"
+
+                   {/* Winkify Toggle - MOVED HERE */}
+                   <div className="space-y-2 border-t pt-4 flex items-center justify-between"> 
+                     <Label htmlFor="winkify-toggle" className="text-sm font-medium cursor-pointer pr-2">
+                         ✨ Winkify: add creative flair to illustrations
+                     </Label>
+                     <Switch
+                         id="winkify-toggle"
+                         checked={!!editorSettings.isWinkifyEnabled} 
+                         onCheckedChange={(checked) => handleSettingChange('isWinkifyEnabled', checked)} 
                      />
-                   </RoughInputWrapper>
-                 </div>
-                 <div className="space-y-2">
-                    <h4 className="text-sm font-semibold text-foreground mb-1">Excitement Element</h4>
-                    <RoughInputWrapper>
-                      <Textarea 
-                        id="excitementElement" 
-                        placeholder="e.g., plot twist, discovery" 
-                        value={editorSettings.excitementElement || ''} 
-                        onChange={(e) => handleSettingChange('excitementElement', e.target.value)} 
-                        className="border-none focus-visible:ring-0 focus-visible:ring-offset-0"
-                      />
-                    </RoughInputWrapper>
-                 </div>
-               </div>
+                   </div>
+
+                   {/* Page Count Buttons */}
+                   <div className="space-y-2">
+                     <TooltipProvider><Tooltip><TooltipTrigger asChild>
+                        <h4 className="text-sm font-semibold text-foreground mb-1">Page Count</h4>
+                     </TooltipTrigger><TooltipContent><p>Total story pages (8, 12, or 16).</p></TooltipContent></Tooltip></TooltipProvider>
+                     <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(60px, 1fr))' }}>
+                       {[8, 12, 16].map(count => (
+                          <RoughButton 
+                            key={count} 
+                            variant={pageCount === count ? "default" : "outline"} 
+                            size="sm"
+                            onClick={() => onPageCountChange(count as PageCount)} 
+                            type="button"
+                            isSelected={pageCount === count}
+                          >
+                            {count}
+                          </RoughButton>
+                        ))}
+                     </div>
+                   </div>
+                   {/* Art Style Selector */}
+                   <div className="space-y-2 pt-4 border-t mt-4">
+                     <TooltipProvider><Tooltip><TooltipTrigger asChild>
+                        <h4 className="text-sm font-semibold text-foreground mb-1">Art Style</h4>
+                     </TooltipTrigger><TooltipContent><p>Visual style for illustrations.</p></TooltipContent></Tooltip></TooltipProvider>
+                     <StyleSelector 
+                       styleLibrary={styleLibrary}
+                       selectedStyle={editorSettings.artStyle}
+                       onSelectStyle={(styleKey) => handleSettingChange('artStyle', styleKey)}
+                     />
+                   </div>
+                </div>
+                <div className="mt-auto pt-4 border-t">
+                  <Button 
+                    onClick={onGenerateStory} 
+                    disabled={isGenerating || isUploading} 
+                    className="w-full bg-[#F76C5E] text-white hover:bg-[#F76C5E]/90"
+                  >
+                    {isGenerating ? (
+                      <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Generating...</>
+                    ) : (
+                      'Generate & Review Story'
+                    )}
+                  </Button>
+                </div>
+              </div>
             </Panel>
           </PanelGroup>
           {/* Adjust PanelGroup RoughBorder style */}
@@ -502,10 +482,17 @@ const StoryboardEditor: React.FC<StoryboardEditorProps> = ({
           )}
         </div>
 
-        {/* Drag Overlay */}
         <DragOverlay>
           {activeAsset ? (
-            <div style={{ width: 100, height: 100 }}><Image src={activeAsset.thumbnailUrl} alt="Dragging asset" fill style={{ objectFit: 'cover' }} className="rounded border" /></div>
+            <div className="rounded-md shadow-lg w-[100px] h-[100px]">
+              <Image 
+                src={activeAsset.thumbnailUrl} 
+                alt="Dragged asset" 
+                fill
+                style={{ objectFit: 'cover' }}
+                className="rounded-sm"
+              />
+            </div>
           ) : null}
         </DragOverlay>
       </DndContext>

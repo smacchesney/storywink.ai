@@ -21,12 +21,16 @@ import { BookStatus, Page, Book, Prisma } from '@prisma/client';
 
 // Add OpenAI SDK import
 import OpenAI, { toFile } from 'openai';
+import { FileLike } from 'openai/uploads'; // Import FileLike for casting
 
 import cloudinary from '../../lib/cloudinary';
 import logger from '../../lib/logger'; // Re-enable standard logger
 
-// Use require for the new CJS prompt library
-const { createIllustrationPrompt, STYLE_LIBRARY } = require('@/lib/ai/styleLibrary.cjs'); 
+// Use require for the new CJS prompt library - ENSURE THE PATH IS CORRECT
+// Assuming styleLibrary.ts is compiled to styleLibrary.cjs in the same relative location
+const { createIllustrationPrompt, STYLE_LIBRARY } = require('@/lib/ai/styleLibrary.cjs');
+// Import the TYPE separately for TypeScript usage
+import type { StyleKey } from '@/lib/ai/styleLibrary';
 
 // --- Initialize OpenAI Client --- 
 const openaiApiKey = process.env.OPENAI_API_KEY;
@@ -36,161 +40,160 @@ if (!openaiApiKey) {
 const openai = openaiApiKey ? new OpenAI({ apiKey: openaiApiKey }) : null;
 // --- End OpenAI Client Init ---
 
-// --- Define Local Type for Fetched Book Data ---
-// Ensure this includes fields needed by the new prompt options
-type FetchedPageData = {
-  id: string;
-  pageNumber: number;
-  text: string | null;
-  originalImageUrl: string | null;
-  generatedImageUrl: string | null;
-  isTitlePage?: boolean | null; // Add the optional isTitlePage flag
-};
-type FetchedBookData = Book & { // Book includes artStyle, tone, theme, etc. 
-  pages: FetchedPageData[]; 
-};
-
 // --- Job Processing Logic ---
 
 async function processIllustrationGenerationJob(job: Job<IllustrationGenerationJobData>) {
   // Extract all necessary fields from the detailed job data
-  logger.info({ jobId: job.id, receivedData: job.data }, "Received illustration job data"); // Temporarily changed to info
+  logger.info({ jobId: job.id, receivedData: job.data }, "Received illustration job data");
   const { 
     userId, bookId, pageId, pageNumber, text, 
-    artStyle, tone, theme, bookTitle, isTitlePage,
+    artStyle, bookTitle, isTitlePage,
     illustrationNotes, originalImageUrl,
     isWinkifyEnabled
   } = job.data;
   logger.info({ jobId: job.id, userId, bookId }, 'Processing illustration generation job...');
 
-  // Use the specific local type for the book variable
-  // No longer need to fetch the full book here, we have the data
-  // let book: FetchedBookData | null = null;
-
   try {
-    // We process ONE page per job now
-    // TODO: Optional check: Fetch the current page status? 
-    // Maybe not necessary if we trust the queue/job state.
-
-    // **** DEBUG: Check isTitlePage flag ****
-    logger.debug({ jobId: job.id, pageNumber: pageNumber, isTitleFlagValue: isTitlePage }, 'Value of isTitlePage for current page');
-    // **************************************
-
     logger.info({ jobId: job.id, bookId, pageId, pageNumber }, 'Generating illustration for page...');
 
-    // --- Step 2a: Fetch original image data and get buffer --- 
-    let originalImageBuffer: Buffer | null = null;
-    let originalImageMimeType: string | null = null;
+    // --- Step 1: Fetch Original Content Image --- 
+    let contentImageBuffer: Buffer | null = null;
+    let contentImageMimeType: string | null = null;
 
-    // Ensure page.originalImageUrl is not null before using it
     if (originalImageUrl) {
         try {
-            logger.info({ jobId: job.id, pageNumber: pageNumber }, `Fetching original image from ${originalImageUrl}`);
+            logger.info({ jobId: job.id, pageNumber: pageNumber }, `Fetching original content image from ${originalImageUrl}`);
             const imageResponse = await fetch(originalImageUrl);
             if (!imageResponse.ok) {
-                throw new Error(`Failed to fetch original image: ${imageResponse.status} ${imageResponse.statusText}`);
+                throw new Error(`Failed to fetch content image: ${imageResponse.status} ${imageResponse.statusText}`);
             }
-
-            // Get content type from header or infer
             const contentTypeHeader = imageResponse.headers.get('content-type');
-            if (contentTypeHeader?.startsWith('image/')) {
-                originalImageMimeType = contentTypeHeader;
-            } else {
-                const extension = originalImageUrl.split('.').pop()?.toLowerCase();
-                if (extension === 'jpg' || extension === 'jpeg') originalImageMimeType = 'image/jpeg';
-                else if (extension === 'png') originalImageMimeType = 'image/png';
-                else originalImageMimeType = 'image/jpeg'; // Default
-            }
-
-            // Store buffer directly
+            contentImageMimeType = contentTypeHeader?.startsWith('image/') 
+                ? contentTypeHeader 
+                : (originalImageUrl.endsWith('.png') ? 'image/png' : 'image/jpeg'); // Infer simply
+            
             const imageArrayBuffer = await imageResponse.arrayBuffer();
-            originalImageBuffer = Buffer.from(imageArrayBuffer);
-            logger.info({ jobId: job.id, pageNumber: pageNumber }, `Successfully fetched and stored original image (${originalImageMimeType}).`);
-
+            contentImageBuffer = Buffer.from(imageArrayBuffer);
+            logger.info({ jobId: job.id, pageNumber: pageNumber }, `Fetched content image (${contentImageMimeType}).`);
         } catch (fetchError: any) {
-            logger.error({ jobId: job.id, pageId, pageNumber, error: fetchError.message }, 'Failed to fetch or store original image.');
-            throw fetchError; // Fail the job if image fetch fails
+            logger.error({ jobId: job.id, pageId, pageNumber, error: fetchError.message }, 'Failed to fetch content image.');
+            throw fetchError;
         }
     } else {
-         logger.error({ jobId: job.id, pageId, pageNumber }, 'Original image URL is missing in job data.');
+         logger.error({ jobId: job.id, pageId, pageNumber }, 'Original content image URL is missing.');
          throw new Error('Missing originalImageUrl for illustration generation.');
     }
-    // --- End Step 2a ---
-
-    // Check for buffer instead of base64 string
-    if (!originalImageBuffer || !originalImageMimeType) {
-        logger.error({ jobId: job.id, pageId, pageNumber }, 'Missing image buffer or mime type after fetch attempt.');
-        throw new Error('Image buffer or mime type missing after fetch.');
+    if (!contentImageBuffer || !contentImageMimeType) {
+        logger.error({ jobId: job.id, pageId, pageNumber }, 'Content image buffer or mime type missing.');
+        throw new Error('Content image buffer/mime type missing.');
     }
+    // --- End Step 1 ---
 
-    // --- Step 2b: Create OpenAI prompt using new function --- 
+    // --- Step 2: Fetch Style Reference Image --- 
+    let styleReferenceBuffer: Buffer | null = null;
+    let styleReferenceMimeType: string | null = null;
+    const styleKey = artStyle as StyleKey; // Cast artStyle using the imported StyleKey type
+    const styleData = STYLE_LIBRARY[styleKey];
+    const styleReferenceUrl = styleData?.referenceImageUrl;
+
+    if (styleReferenceUrl) {
+         try {
+            logger.info({ jobId: job.id, pageNumber: pageNumber }, `Fetching style reference image from ${styleReferenceUrl}`);
+            const styleResponse = await fetch(styleReferenceUrl);
+            if (!styleResponse.ok) {
+                throw new Error(`Failed to fetch style image: ${styleResponse.status} ${styleResponse.statusText}`);
+            }
+            const styleContentTypeHeader = styleResponse.headers.get('content-type');
+            styleReferenceMimeType = styleContentTypeHeader?.startsWith('image/') 
+                ? styleContentTypeHeader 
+                : (styleReferenceUrl.endsWith('.png') ? 'image/png' : 'image/jpeg'); // Infer simply
+            
+            const styleArrayBuffer = await styleResponse.arrayBuffer();
+            styleReferenceBuffer = Buffer.from(styleArrayBuffer);
+            logger.info({ jobId: job.id, pageNumber: pageNumber }, `Fetched style reference image (${styleReferenceMimeType}).`);
+        } catch (fetchError: any) {
+            logger.error({ jobId: job.id, pageId, pageNumber, styleKey, error: fetchError.message }, 'Failed to fetch style reference image.');
+            throw fetchError; 
+        }
+    } else {
+         logger.error({ jobId: job.id, pageId, pageNumber, styleKey }, 'Style reference image URL is missing for the selected style.');
+         throw new Error(`Missing referenceImageUrl for style: ${styleKey}`);
+    }
+    if (!styleReferenceBuffer || !styleReferenceMimeType) {
+        logger.error({ jobId: job.id, pageId, pageNumber }, 'Style reference image buffer or mime type missing.');
+        throw new Error('Style reference image buffer/mime type missing.');
+    }
+    // --- End Step 2 ---
+
+    // --- Step 3: Create OpenAI prompt using the updated function --- 
     const promptInput = {
-        // Use the style key directly from the book record
-        style: artStyle as keyof typeof STYLE_LIBRARY | undefined ?? 'cartoonBrights', 
-        theme: theme,
-        tone: tone,
+        style: styleKey, 
         pageText: text,
         bookTitle: bookTitle,
         isTitlePage: isTitlePage,
         illustrationNotes: illustrationNotes,
         isWinkifyEnabled: isWinkifyEnabled
     };
-    // Call the NEW prompt function
-    logger.info({ jobId: job.id, pageId, promptInput }, "Constructed promptInput for createIllustrationPrompt"); // Temporarily changed to info
+    logger.info({ jobId: job.id, pageId, promptInput }, "Constructed promptInput for createIllustrationPrompt");
     const textPrompt = createIllustrationPrompt(promptInput);
-    logger.info({ jobId: job.id, pageId, pageNumber }, 'Generated OpenAI illustration prompt.');
-    logger.info({ jobId: job.id, pageId, pageNumber, prompt: textPrompt }, 'OpenAI Illustration Prompt Text:'); // Changed to info
-    // --- End Step 2b ---
+    logger.info({ jobId: job.id, pageId, pageNumber }, 'Generated OpenAI illustration prompt for two-image input.');
+    logger.info({ jobId: job.id, pageId, pageNumber, promptLength: textPrompt.length }, 'OpenAI Illustration Prompt Text: [REDACTED - check logs if needed]');
+    // --- End Step 3 ---
 
-    // --- Step 2c, 2d: Call OpenAI Edit API and Handle Response --- 
+    // --- Step 4: Prepare files for API Call --- 
+    if (!openai) throw new Error("OpenAI Client not initialized.");
+    
+    const contentFileExt = contentImageMimeType?.split('/')[1] || 'jpg';
+    const contentFileName = `page_${pageNumber}_content.${contentFileExt}`;
+    const contentImageFile = await toFile(
+        contentImageBuffer,
+        contentFileName,
+        { type: contentImageMimeType }
+    );
+    logger.info({ jobId: job.id, pageId, pageNumber }, 'Prepared content image file for API.');
+
+    const styleFileExt = styleReferenceMimeType?.split('/')[1] || 'jpg';
+    const styleFileName = `${styleKey}_ref.${styleFileExt}`;
+    const styleReferenceImageFile = await toFile(
+        styleReferenceBuffer,
+        styleFileName,
+        { type: styleReferenceMimeType }
+    );
+    logger.info({ jobId: job.id, pageId, pageNumber }, 'Prepared style reference image file for API.');
+
+    // Create the array of FileLike objects for the API call
+    const imageInputArray: FileLike[] = [contentImageFile, styleReferenceImageFile];
+    // --- End Step 4 ---
+
+    // --- Step 5: Call OpenAI Edit API with TWO images and Handle Response --- 
     let generatedImageBase64: string | null = null;
     let moderationBlocked = false; // Flag for moderation rejection
     let moderationReasonText: string | null = null; // Reason if blocked
     try {
-       if (!openai) throw new Error("OpenAI Client not initialized.");
-       if (!originalImageBuffer) throw new Error("Original image buffer missing.");
-       const fileExtension = originalImageMimeType?.split('/')[1] || 'jpg';
-       const fileName = `page_${pageNumber}_original.${fileExtension}`;
-       const imageFile = await toFile(
-           originalImageBuffer,
-           fileName,
-           { type: originalImageMimeType }
-       );
-       logger.info({ jobId: job.id, pageId, pageNumber }, 'Calling OpenAI Images Edit API...');
+       logger.info({ jobId: job.id, pageId, pageNumber }, 'Calling OpenAI Images Edit API with two images...');
 
        const result = await openai.images.edit({
            model: "gpt-image-1",
-           image: imageFile,
-           prompt: textPrompt, // Use the newly generated prompt
+           image: imageInputArray as any, // Cast to any to bypass Uploadable type check for array
+           prompt: textPrompt, 
            n: 1,
-           size: "1024x1024",
-           // response_format removed
+           size: "1024x1024", // <--- Reverted size parameter back to square
        });
 
-       logger.info({ jobId: job.id, pageId, pageNumber }, 'Received response from OpenAI.');
+       logger.info({ jobId: job.id, pageId, pageNumber }, 'Received response from OpenAI (two-image edit).');
 
-        // Check for content policy violations (example structure, adjust if needed)
-        // NOTE: The exact structure for moderation feedback in the edit endpoint isn't 
-        // clearly documented; this assumes a similar pattern to other endpoints.
-        // We might need to inspect the raw `result` object if this doesn't work.
+        // Moderation checks (remain similar, adapt as needed)
         if (result?.data?.[0]?.revised_prompt && result.data[0].revised_prompt !== textPrompt) {
-            logger.warn({ jobId: job.id, pageId, pageNumber, original: textPrompt, revised: result.data[0].revised_prompt }, 'OpenAI revised the prompt.');
-            // Decide if revision constitutes a failure or just a warning
+            logger.warn({ jobId: job.id, pageId, pageNumber, originalLength: textPrompt.length, revisedLength: result.data[0].revised_prompt.length }, 'OpenAI revised the prompt (check details in full logs if needed).');
         }
-        // Check common safety/error fields (adjust based on actual API errors)
-        // For example, DALL-E errors might be in error field or data might be empty with a flag
-        // Let's assume for now a missing b64_json might indicate blocking or error
 
         const b64ImageData = result.data[0]?.b64_json;
         if (b64ImageData) {
             generatedImageBase64 = b64ImageData;
             logger.info({ jobId: job.id, pageId, pageNumber }, 'Extracted generated image data (b64_json).');
         } else {
-            // If no image data, assume failure/blocking
             moderationBlocked = true;
-            moderationReasonText = "Image generation failed or blocked by content policy."; // Generic reason
-            // Attempt to get more specific reason if possible from API response structure
-            // (e.g., result.error?.message, result.data[0]?.error, etc. - Inspect `result` object)
+            moderationReasonText = "Image generation failed or blocked by content policy (no b64_json data)."; 
             logger.warn({ jobId: job.id, pageId, pageNumber, response: JSON.stringify(result) }, 'OpenAI response did not contain b64_json image data.');
         }
 
@@ -201,28 +204,26 @@ async function processIllustrationGenerationJob(job: Job<IllustrationGenerationJ
             pageNumber: pageNumber, 
             error: apiError instanceof Error ? apiError.message : String(apiError),
             ...(apiError?.response?.data && { responseData: apiError.response.data }) 
-        }, 'Error calling OpenAI Images Edit API.');
+        }, 'Error calling OpenAI Images Edit API (two-image edit).');
         moderationBlocked = true; // Treat API errors as generation failure
         moderationReasonText = apiError instanceof Error ? apiError.message : String(apiError);
-        // No need to `continue` here, we want to update the page status below
     }
-    // --- End Step 2c & 2d ---
+    // --- End Step 5 ---
     
-    // --- Step 2e: Upload generated buffer to Cloudinary (only if not blocked) --- 
+    // --- Step 6: Upload generated buffer to Cloudinary (only if not blocked) --- 
     let finalImageUrl: string | undefined = undefined;
     if (generatedImageBase64 && !moderationBlocked) {
       try {
           logger.info({ jobId: job.id, pageId, pageNumber }, 'Decoding and uploading generated image to Cloudinary...');
           const generatedImageBuffer = Buffer.from(generatedImageBase64, 'base64');
           
-          // Upload buffer to Cloudinary
           const uploadResult = await new Promise<any>((resolve, reject) => {
                cloudinary.uploader.upload_stream(
                    {
                        folder: `storywink/${bookId}/generated`, 
                        public_id: `page_${pageNumber}`,
                        overwrite: true,
-                       tags: [`book:${bookId}`, `page:${pageId}`, `pageNum:${pageNumber}`],
+                       tags: [`book:${bookId}`, `page:${pageId}`, `pageNum:${pageNumber}`, `style:${styleKey}`], // Added style tag
                        resource_type: "image"
                    },
                    (error, result) => {
@@ -239,28 +240,23 @@ async function processIllustrationGenerationJob(job: Job<IllustrationGenerationJ
 
       } catch (uploadError: any) {
           logger.error({ jobId: job.id, pageId, pageNumber, error: uploadError.message }, 'Failed to upload generated image to Cloudinary.');
-          // If upload fails after generation, mark as failed for this page
           moderationBlocked = true;
           moderationReasonText = moderationReasonText || `Cloudinary upload failed: ${uploadError.message}`;
       }
     } else if (!moderationBlocked) {
-        // This case means API call succeeded but somehow no base64 data was extracted - treat as failure
         logger.warn({ jobId: job.id, pageId, pageNumber }, 'Skipping Cloudinary upload because no image data was generated/extracted.');
         moderationBlocked = true;
         moderationReasonText = moderationReasonText || "Image data extraction failed after API call.";
     }
-    // --- End Step 2e --- 
+    // --- End Step 6 --- 
 
-    // --- Step 2f: Update Page Status and URL --- 
-    // Update the specific page record
+    // --- Step 7: Update Page Status and URL --- 
     try {
         await db.page.update({
-            where: { id: pageId }, // Use pageId received in job data
+            where: { id: pageId },
             data: {
-                // Set URL only if successful
                 generatedImageUrl: !moderationBlocked ? finalImageUrl : null,
-                // Set status based on outcome
-                moderationStatus: moderationBlocked ? "FLAGGED" : "OK", // Use FLAGGED for any failure/block
+                moderationStatus: moderationBlocked ? "FLAGGED" : "OK",
                 moderationReason: moderationReasonText,
             },
         });
@@ -269,32 +265,43 @@ async function processIllustrationGenerationJob(job: Job<IllustrationGenerationJ
             pageId, 
             pageNumber: pageNumber, 
             status: moderationBlocked ? "FLAGGED" : "OK",
-            reason: moderationReasonText
+            reason: moderationReasonText // Log reason even on OK for potential revisions
         }, 'Page status updated.');
     } catch (dbError: any) {
          logger.error({ jobId: job.id, pageId, pageNumber, error: dbError.message }, 'Failed to update page status in database.');
-         // This is a more critical error, might warrant failing the job
          throw dbError; 
     }
+    // --- End Step 7 ---
+
   } catch (error: any) {
     logger.error({ jobId: job.id, bookId, error: error.message, stack: error.stack }, 'Error processing illustration generation job');
-    // TODO: Optionally update page status to FAILED here if needed? 
-    // Currently, the job will fail and might be retried by BullMQ.
-    // No longer updating book status here on error.
+    // Optionally update page status to FAILED here if needed
+    // Consider adding a specific status like 'GENERATION_FAILED'?
+    try {
+      await db.page.update({
+        where: { id: pageId },
+        data: { 
+          moderationStatus: 'FAILED', 
+          moderationReason: `Job failed: ${error.message}`.slice(0, 1000) // Limit reason length
+        }
+      });
+    } catch (dbUpdateError: any) {
+       logger.error({ jobId: job.id, bookId, error: dbUpdateError.message }, 'Failed to update page status to FAILED after job error.');
+    }
     throw error; // Re-throw original error for BullMQ retry logic
   }
 }
 
-// --- Worker Initialization ---
+// --- Worker Initialization --- (Concurrency remains at 9 as per previous change)
 
-logger.info('Initializing Illustration Generation Worker (OpenAI Mode)...');
+logger.info('Initializing Illustration Generation Worker (OpenAI Two-Image Edit Mode)...');
 
 const worker = new Worker<IllustrationGenerationJobData>(
   QueueName.IllustrationGeneration,
   processIllustrationGenerationJob,
   {
     ...workerConnectionOptions,
-    concurrency: 1, // Keep concurrency 1 for now
+    concurrency: 9, // Keep concurrency 9 as previously set
     removeOnComplete: { count: 1000 },
     removeOnFail: { count: 5000 },
   }
@@ -312,7 +319,7 @@ worker.on('error', err => {
   logger.error({ error: err.message }, 'Illustration worker error');
 });
 
-logger.info('Illustration Generation Worker started (OpenAI Mode).');
+logger.info('Illustration Generation Worker started (OpenAI Two-Image Edit Mode).');
 
 // Graceful shutdown
 process.on('SIGTERM', async () => {

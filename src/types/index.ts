@@ -23,12 +23,7 @@ export interface Book {
   userId: string;
   pages: Page[];
   artStyle?: string;
-  tone?: string;
   typography?: string;
-  theme?: string;
-  keyCharacters?: string;
-  specialObjects?: string;
-  excitementElement?: string;
   pageLength: number; // 8, 12, or 16
   createdAt: Date;
   updatedAt: Date;

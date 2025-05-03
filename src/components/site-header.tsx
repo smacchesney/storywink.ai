@@ -2,16 +2,23 @@ import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { SignedIn, SignedOut, UserButton } from "@clerk/nextjs";
+import Image from "next/image";
 
 export function SiteHeader() {
   return (
-    <header className="sticky top-0 z-50 w-full border-b border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+    <header className="sticky top-0 z-50 w-full border-b border-border/40 bg-[#FFFFFF] dark:bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container flex h-14 items-center px-6 md:px-8">
         <div className="hidden md:flex items-center">
           <Link href="/" className="mr-6 flex items-center space-x-2">
-            {/* Update logo text and styling */}
-            <span className="hidden font-bold text-3xl sm:inline-block text-slate-900 dark:text-white"> {/* Increased size */} 
-              Storywin<span /* style={{ color: '#4ECDC4' }} REMOVED */ >k.ai</span> {/* Split text, add color */} 
+            <Image
+              src="/images/mascot/Winky the TREX.png"
+              alt="Storywink Mascot"
+              width={40}
+              height={40}
+              className="h-10 w-10"
+            />
+            <span className="hidden font-bold text-3xl sm:inline-block text-slate-900 dark:text-white">
+              Storywin<span className="text-[#F76C5E]" >k.ai</span>
             </span>
           </Link>
           {/* <nav className="flex items-center space-x-6 text-sm font-medium">

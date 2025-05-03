@@ -2,7 +2,7 @@ import React from 'react';
 import Image from 'next/image';
 import { useDraggable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
-import { PlusSquare } from 'lucide-react';
+import { PlusSquare, Loader2, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 // Placeholder Asset type (replace with actual Prisma type later)
@@ -16,6 +16,7 @@ interface AssetLibraryProps {
   assets: Asset[];
   usedAssetIds: string[]; // Accept the list of used IDs
   onTriggerUpload?: () => void; // Add prop to accept the trigger function
+  isUploading?: boolean; // Added prop
 }
 
 // Draggable Asset Item Component
@@ -69,17 +70,29 @@ export const DraggableAsset: React.FC<DraggableAssetProps> = ({ asset, isUsed })
   );
 }
 
-const AssetLibrary: React.FC<AssetLibraryProps> = ({ assets, usedAssetIds, onTriggerUpload }) => {
+const AssetLibrary: React.FC<AssetLibraryProps> = ({
+  assets,
+  usedAssetIds,
+  onTriggerUpload,
+  isUploading = false, // Added prop with default
+}) => {
   return (
     <div className="flex flex-wrap gap-2 h-full items-center overflow-x-auto">
       <Button 
         variant="outline" 
         className="h-20 w-20 border-dashed flex-col flex-shrink-0"
         onClick={onTriggerUpload}
-        aria-label="Add photos"
+        disabled={isUploading} // Disable button while uploading
+        aria-label={isUploading ? "Uploading files" : "Add photos"}
       >
-        <PlusSquare className="h-8 w-8 text-muted-foreground mb-1" />
-        <span className="text-xs text-muted-foreground">Add</span>
+        {isUploading ? (
+          <Loader2 className="h-8 w-8 text-muted-foreground animate-spin mb-1" />
+        ) : (
+          <Upload className="h-8 w-8 text-muted-foreground mb-1" /> // Using Upload icon now
+        )}
+        <span className="text-xs text-muted-foreground">
+          {isUploading ? 'Uploading...' : 'Add'}
+        </span>
       </Button>
 
       {assets && assets.length > 0 ? (

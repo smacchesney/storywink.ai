@@ -11,16 +11,15 @@ type Asset = {
   thumbnailUrl: string; // Assuming this is the only field needed from Asset
 };
 type PageCount = 8 | 12 | 16;
+
+// ENSURE THIS TYPE IS SIMPLIFIED + HAS WINKIFY
 type EditorSettings = {
   bookTitle: string;
   childName: string;
   artStyle: string;
-  storyTone: string;
-  theme?: string;
-  people?: string;
-  objects?: string;
-  excitementElement?: string;
+  // storyTone, theme, etc. MUST be removed here
   isDoubleSpread: boolean;
+  isWinkifyEnabled: boolean; // Added here
 };
 
 export interface BookData {
@@ -28,7 +27,7 @@ export interface BookData {
     assets: Asset[]; // Array of simplified Asset objects
     // Consider if pages should store more data from the Page model if needed later
     pages: null | { id: string; text: string | null; generatedImageUrl?: string | null }[];
-    settings: EditorSettings & { pageLength: PageCount };
+    settings: EditorSettings & { pageLength: PageCount }; // Uses updated EditorSettings
     status?: BookStatus | null;
 }
 
