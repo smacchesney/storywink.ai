@@ -2,15 +2,12 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import StoryboardEditor from '@/components/storyboard/storyboard-editor';
 import { Button } from '@/components/ui/button';
-import RoughUnderline from "@/components/ui/rough-underline";
-import { ArrowLeft, Loader2 } from 'lucide-react';
+import { ArrowLeft, Loader2, Plus } from 'lucide-react';
 import { toast } from 'sonner';
-import { useBookCreation, BookData } from '@/context/BookCreationContext';
-import { BookStatus } from '@prisma/client';
-import { Switch } from "@/components/ui/switch"
-import { Label } from "@/components/ui/label"
+import PhotoSourceSheet from '@/components/create/PhotoSourceSheet';
+import UploadProgressScreen from '@/components/create/UploadProgressScreen';
+import logger from '@/lib/logger';
 
 // Import STYLE_LIBRARY using require due to CJS
 const { STYLE_LIBRARY } = require('@/lib/ai/styleLibrary');
@@ -20,81 +17,149 @@ type Asset = {
   id: string;
   thumbnailUrl: string;
 };
-type PageCount = 8 | 12 | 16;
-type DroppedAssets = Record<number | string, string | null>;
-// CORRECTLY Simplified EditorSettings type
-type EditorSettings = {
-  bookTitle: string;
-  childName: string;
-  artStyle: string;
-  isDoubleSpread: boolean;
-  isWinkifyEnabled: boolean;
-  // storyTone, theme, people, objects, excitementElement removed
-};
 
 // Main Page Component
 export default function CreateBookPage() {
   const router = useRouter();
-  const { setBookData } = useBookCreation();
-  const headingRef = useRef<HTMLDivElement>(null);
-  const [headingWidth, setHeadingWidth] = useState(0);
-
   const [uploadedAssets, setUploadedAssets] = useState<Asset[]>([]);
-  const [droppedAssets, setDroppedAssets] = useState<DroppedAssets>({});
-  // Initial state reflects simplified type
-  const [editorSettings, setEditorSettings] = useState<Partial<EditorSettings>>({ 
-    isDoubleSpread: false, 
-    isWinkifyEnabled: false
-  });
-  const [pageCount, setPageCount] = useState<PageCount>(8);
-  const [isGenerating, setIsGenerating] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isSheetOpen, setIsSheetOpen] = useState(false);
+  
+  // State for Progress Screen
+  const [showProgressScreen, setShowProgressScreen] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [currentUploadFile, setCurrentUploadFile] = useState(0);
+  const [totalUploadFiles, setTotalUploadFiles] = useState(0);
 
-  useEffect(() => {
-    if (headingRef.current) {
-      const updateWidth = () => {
-        if (headingRef.current) {
-          setHeadingWidth(headingRef.current.offsetWidth);
-        }
-      };
-      updateWidth();
-      const resizeObserver = new ResizeObserver(updateWidth);
-      resizeObserver.observe(headingRef.current);
-      return () => resizeObserver.disconnect();
+  // Updated function to call the real API endpoint
+  const handleCreateBook = async (assetIds: string[]) => {
+    logger.info({ userId: "(client-side)", assetCount: assetIds.length }, "Initiating book creation via API...");
+    // TODO: Get actual userId if needed for client-side logging, but API uses server-side auth
+    
+    try {
+      const response = await fetch('/api/book/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ assetIds }),
+      });
+      
+      const result = await response.json(); // Attempt to parse JSON regardless of status for error details
+
+      if (!response.ok) {
+        logger.error({ status: response.status, error: result?.error, details: result?.details }, "Book Creation API Error");
+        throw new Error(result?.error || `Book creation failed: ${response.statusText}`);
+      }
+
+      if (!result.bookId) {
+        logger.error("Book Creation API Error: API did not return a bookId");
+        throw new Error("API did not return a bookId");
+      }
+
+      logger.info({ bookId: result.bookId }, "Book creation successful via API.");
+      return result; // { bookId: string }
+      
+    } catch (error) { 
+      logger.error({ error }, "Book Creation API Call Failed");
+      toast.error(`Failed to start book creation: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      return null;
     }
-  }, []);
+  };
 
-  const handleUploadComplete = (newAssets: Asset[]) => {
-    setUploadedAssets(prevAssets => [...prevAssets, ...newAssets]);
+  const handleUploadComplete = async (newAssets: Asset[]) => {
+    const allAssets = [...uploadedAssets, ...newAssets];
+    setUploadedAssets(allAssets);
+    console.log("Upload complete, total assets:", allAssets);
+
+    // Don't hide progress screen yet
+    // setUploadProgress(0); // Keep progress at 100% visually
+    // setCurrentUploadFile(totalUploadFiles); 
+    // setTotalUploadFiles(0);
+    // setShowProgressScreen(false); // <-- REMOVE THIS HIDE CALL
+
+    if (allAssets.length > 0) {
+      const assetIds = allAssets.map(asset => asset.id);
+      toast.info("Creating your book draft...");
+      const creationResult = await handleCreateBook(assetIds);
+      
+      if (creationResult?.bookId) {
+        toast.success("Book draft created! Opening editor...");
+        // Navigation will unmount this component, hiding the progress screen
+        router.push(`/create/${creationResult.bookId}/edit`); 
+      } else {
+        // Error occurred during handleCreateBook (already toasted there)
+        setShowProgressScreen(false); // <-- Hide progress ONLY on failure
+        setIsUploading(false); 
+      }
+    } else {
+      toast.warning("No assets uploaded, cannot create book.");
+      setShowProgressScreen(false); // <-- Hide progress if no assets
+      setIsUploading(false); 
+    }
+    // setIsUploading is set to false inside handleFileInputChange finally block or on creation failure
   };
 
   // Upload logic (calls API)
   const handleFileInputChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
      if (event.target.files && event.target.files.length > 0) {
        const files = Array.from(event.target.files);
+       
+       // Reset state for new upload batch
        setIsUploading(true);
+       setShowProgressScreen(true);
+       setUploadProgress(0);
+       setCurrentUploadFile(1); // Start with file 1
+       setTotalUploadFiles(files.length);
+       
        toast.info(`Uploading ${files.length} file(s)...`);
+       
+       // Simulate Progress (replace with actual progress later)
+       // TODO: Implement real progress tracking (e.g., using XHR events or a library)
+       let simulatedProgress = 0;
+       const progressInterval = setInterval(() => {
+         simulatedProgress += 10;
+         if (simulatedProgress <= 100) {
+           setUploadProgress(simulatedProgress);
+           // Simple simulation of file count increment
+           setCurrentUploadFile(Math.min(totalUploadFiles, Math.ceil(simulatedProgress / (100 / totalUploadFiles)))); 
+         } else {
+           clearInterval(progressInterval);
+         }
+       }, 200); // Update progress every 200ms
+       
        const formData = new FormData();
        files.forEach((file) => formData.append('files', file));
+       
        try {
           const response = await fetch('/api/upload', { method: 'POST', body: formData });
+          
+          clearInterval(progressInterval); // Stop simulation on fetch completion
+          setUploadProgress(100); // Ensure progress hits 100%
+          setCurrentUploadFile(totalUploadFiles); // Ensure final file count is shown
+
           if (!response.ok) {
             const errorData = await response.json().catch(() => ({}));
+            setShowProgressScreen(false); // Hide progress on error
             throw new Error(errorData.error || `Upload failed: ${response.statusText}`);
           }
           const result = await response.json();
           if (result.assets && result.assets.length > 0) {
+              // Don't show success toast here, handleUploadComplete will handle flow
+              // toast.success(`${result.assets.length} file(s) uploaded successfully!`);
+              // Call completion handler which will then trigger book creation
               handleUploadComplete(result.assets);
-              toast.success(`${result.assets.length} file(s) uploaded successfully!`);
           } else {
+              setShowProgressScreen(false); // Hide progress if no assets
               toast.warning("Upload completed, but no assets were returned.");
           }
        } catch (error) {
+          clearInterval(progressInterval); // Stop simulation on error
+          setShowProgressScreen(false); // Hide progress on error
           console.error("File Upload Error:", error);
           toast.error(`Error uploading files: ${error instanceof Error ? error.message : 'Unknown error'}`);
        } finally {
-          setIsUploading(false);
+          // Do not hide progress screen here, handleUploadComplete does it
+          setIsUploading(false); // Allow new uploads
           if (fileInputRef.current) fileInputRef.current.value = '';
        }
      }
@@ -102,151 +167,54 @@ export default function CreateBookPage() {
 
   const triggerUpload = () => fileInputRef.current?.click();
 
-  // Story Generation Logic
-  const handleGenerateStory = async () => {
-    setIsGenerating(true);
-    const TITLE_PAGE_ID = 'title-page'; // Use consistent ID
-    
-    const orderedStoryAssetIds = Object.entries(droppedAssets)
-        .filter(([key, value]) => key !== TITLE_PAGE_ID && value !== null)
-        .sort(([keyA], [keyB]) => Number(keyA) - Number(keyB)) // Sort by numeric index
-        .map(([, value]) => value as string);
-
-    const titlePageAssetId = droppedAssets[TITLE_PAGE_ID] || null;
-    const includeTitlePage = titlePageAssetId !== null;
-
-    // Validation (using simplified EditorSettings)
-    const requiredFields: (keyof Pick<EditorSettings, 'artStyle' | 'isDoubleSpread'>)[] = ['artStyle', 'isDoubleSpread'];
-    const missingRequiredFields = requiredFields.filter(key => editorSettings[key] === undefined || editorSettings[key] === '');
-    const missingOrEmptyBookTitle = !editorSettings.bookTitle?.trim();
-    const missingOrEmptyChildName = !editorSettings.childName?.trim();
-
-    let errorMessages: string[] = [];
-    if (orderedStoryAssetIds.length === 0) errorMessages.push("Please add at least one photo for the story pages."); 
-    if (pageCount !== orderedStoryAssetIds.length) {
-         errorMessages.push(`Please ensure the number of photos (${orderedStoryAssetIds.length}) matches the selected Page Count (${pageCount}) for story pages.`);
-    }    
-    if (missingOrEmptyBookTitle) errorMessages.push("Book Title is required.");
-    if (missingOrEmptyChildName) errorMessages.push("Child's Name is required.");
-    if (missingRequiredFields.length > 0) errorMessages.push(`Missing required settings: ${missingRequiredFields.join(', ')}`);
-
-    if (errorMessages.length > 0) {
-        toast.error(errorMessages.join("\n"));
-        setIsGenerating(false);
-        return;
-    }
-
-    // Construct payload for the backend (simplified)
-    const requestPayload = {
-        bookTitle: editorSettings.bookTitle!, 
-        childName: editorSettings.childName!,
-        pageCount: pageCount, 
-        artStyle: editorSettings.artStyle!,
-        isDoubleSpread: editorSettings.isDoubleSpread!,
-        droppedAssets: droppedAssets, 
-        isWinkifyEnabled: editorSettings.isWinkifyEnabled || false,
-    };
-    console.log("Generating story with simplified payload:", requestPayload);
-
-    try {
-      const response = await fetch('/api/generate/story', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestPayload),
-      });
-
-       if (!response.ok && response.status !== 202) {
-         const errorData = await response.json().catch(() => ({}));
-         console.error("API Error Response:", errorData);
-         throw new Error(errorData.details?.[0]?.message || errorData.error || `Story generation failed: ${response.statusText}`);
-       }
-
-       if (response.status === 202) {
-          const result = await response.json();
-          console.log("Generation Job Accepted:", result);
-          if (!result.bookId) throw new Error("API did not return a bookId");
-
-          const finalAssetsForContext = Object.values(droppedAssets)
-             .filter((id): id is string => id !== null) 
-             .map(id => uploadedAssets.find(asset => asset.id === id))
-             .filter((asset): asset is Asset => asset !== undefined);
-          
-          // Simplified settings for context using the CORRECTLY simplified EditorSettings type
-          const finalSettingsForContext: EditorSettings & { pageLength: PageCount } = {
-             bookTitle: requestPayload.bookTitle,
-             childName: requestPayload.childName,
-             artStyle: requestPayload.artStyle,
-             isDoubleSpread: requestPayload.isDoubleSpread,
-             isWinkifyEnabled: requestPayload.isWinkifyEnabled,
-             pageLength: requestPayload.pageCount, 
-          };
-
-          setBookData({
-            bookId: result.bookId,
-            assets: finalAssetsForContext, 
-            pages: null, 
-            settings: finalSettingsForContext,
-            status: result.status || BookStatus.GENERATING 
-          });
-
-          toast.info("Story generation started! Moving to review page...");
-          router.push('/create/review');
-       } else {
-          console.warn("Received unexpected success status:", response.status);
-          toast.error("Received an unexpected response from the server.");
-       }       
-
-    } catch (error) {
-       console.error("Story Generation Error:", error);
-       toast.error(`Error generating story: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    } finally {
-      setIsGenerating(false);
-    }
+  // Modified handler to open the sheet
+  const handleStartCreatingClick = () => {
+    console.log("Start Creating clicked - Opening PhotoSourceSheet");
+    setIsSheetOpen(true);
+    // triggerUpload();
   };
   
-  const handleRemoveAsset = (idToRemove: number | string) => {
-     setDroppedAssets(prev => {
-         const newState = { ...prev };
-         newState[idToRemove] = null;
-         return newState;
-     });
+  // Placeholder for Google Photos import
+  const handleImportFromGooglePhotos = () => {
+    toast.info("Import from Google Photos is coming soon!");
   };
 
   return (
-    <div className="py-8 px-4">
-      <div className="flex items-center mb-6">
-        <Button variant="ghost" size="icon" className="mr-2" onClick={() => window.history.back()}>
-          <ArrowLeft className="h-5 w-5" />
-        </Button>
-        <div ref={headingRef} className="relative inline-block ml-1">
-          <h1 className="text-4xl font-bold">Create Your Story</h1>
-          {headingWidth > 0 && (
-            <RoughUnderline 
-              width={headingWidth} 
-              className="absolute bottom-0 left-0 -mb-1.5"
-              roughness={3} 
-              strokeWidth={3} 
-            />
-          )}
-        </div>
-      </div>
-
+    <>
+      {showProgressScreen && (
+        <UploadProgressScreen 
+          progress={uploadProgress}
+          currentFile={currentUploadFile}
+          totalFiles={totalUploadFiles}
+        />
+      )}
+      
+      {!showProgressScreen && (
+        <div className="flex flex-col items-center justify-center min-h-[calc(100vh-150px)] px-4 py-8">
       <input type="file" ref={fileInputRef} onChange={handleFileInputChange} className="hidden" multiple accept="image/jpeg,image/png,image/heic,image/heif" />
 
-      <StoryboardEditor
-          initialAssets={uploadedAssets}
-          onTriggerUpload={isUploading ? undefined : triggerUpload}
-          droppedAssets={droppedAssets}
-          onDroppedAssetsChange={setDroppedAssets}
-          editorSettings={editorSettings}
-          onEditorSettingsChange={setEditorSettings}
-          pageCount={pageCount}
-          onPageCountChange={setPageCount}
-          styleLibrary={STYLE_LIBRARY}
-          onGenerateStory={handleGenerateStory}
-          isGenerating={isGenerating}
-          isUploading={isUploading}
+          <Button 
+            onClick={handleStartCreatingClick}
+            disabled={isUploading}
+            variant="outline" 
+            className="relative bg-white rounded-full w-24 h-24 md:w-40 md:h-40 shadow-lg hover:shadow-xl transition-shadow duration-300 ease-in-out flex items-center justify-center group"
+          >
+            <Plus className="text-[#F76C5E] w-10 h-10 md:w-16 md:h-16 transition-transform duration-300 ease-in-out group-hover:scale-110" />
+            {/* Loader is removed here as the full screen overlay handles loading state */}
+          </Button>
+
+          <p className="mt-4 md:mt-6 text-lg md:text-xl text-gray-600 font-medium">
+            Start Creating
+          </p>
+          
+          <PhotoSourceSheet
+            isOpen={isSheetOpen}
+            onOpenChange={setIsSheetOpen}
+            onChooseFromPhone={triggerUpload}
+            onImportFromGooglePhotos={handleImportFromGooglePhotos}
       />
     </div>
+      )}
+    </>
   );
 }

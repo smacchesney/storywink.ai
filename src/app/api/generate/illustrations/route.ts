@@ -55,28 +55,28 @@ export async function POST(request: Request) {
   }
 
   try {
-    // Step 1: Validate Book Ownership and Status (Simplified select)
+    // Step 1: Validate Book Ownership and Status
     console.info({ userId, bookId: requestData.bookId }, 'Validating book...');
     const book = await prisma.book.findUnique({
       where: {
         id: requestData.bookId,
-        userId: userId, // Ensure the user owns the book
+        userId: userId, 
       },
       select: {
         id: true,
         title: true,
         artStyle: true,
         status: true,
-        isWinkifyEnabled: true, // Keep this flag
+        isWinkifyEnabled: true, 
         pages: {
-          orderBy: { pageNumber: 'asc' },
-          select: { // Select all fields needed for the job
+          orderBy: { index: 'asc' },
+          select: {
             id: true,
-            pageNumber: true,
             text: true,
             originalImageUrl: true,
-            isTitlePage: true,
             illustrationNotes: true,
+            assetId: true,
+            index: true
           }
         }
       }
@@ -99,34 +99,36 @@ export async function POST(request: Request) {
 
     console.info({ userId, bookId: book.id }, 'Book validation successful.');
 
-    // Step 2: Update Book Status to ILLUSTRATING first
+    // Step 2: Update Book Status to ILLUSTRATING
     await prisma.book.update({
         where: { id: book.id },
         data: { status: BookStatus.ILLUSTRATING }
     });
     console.info({ userId, bookId: book.id }, 'Book status updated to ILLUSTRATING.');
 
-    // Step 3: Create child job definitions for each page (Simplified data)
-    const pageChildren = book.pages.map((page) => {
-        // Build the simplified data needed specifically by the illustration worker
+    // Step 3: Create child job definitions for each page
+    const pageChildren = book.pages.map((page, index) => {
+        const isActualTitlePage = index === 0;
+        const logicalPageNumber = index + 1;
+        
         const illustrationJobData: IllustrationGenerationJobData = {
             userId: userId,
             bookId: book.id,
             pageId: page.id,
-            pageNumber: page.pageNumber,
+            pageNumber: logicalPageNumber,
             text: page.text,
             artStyle: book.artStyle,
             bookTitle: book.title,
-            isWinkifyEnabled: book.isWinkifyEnabled || false, // Pass flag
-            isTitlePage: page.isTitlePage || false,
+            isWinkifyEnabled: book.isWinkifyEnabled || false,
+            isTitlePage: isActualTitlePage,
             illustrationNotes: page.illustrationNotes,
             originalImageUrl: page.originalImageUrl,
         };
-        const jobName = `generate-illustration-${book.id}-p${page.pageNumber}`;
-        logger.info({ userId, bookId: book.id, pageId: page.id, pageNumber: page.pageNumber }, `Queueing job: ${jobName}`);
+        const jobName = `generate-illustration-${book.id}-p${logicalPageNumber}`;
+        logger.info({ userId, bookId: book.id, pageId: page.id, pageNumber: logicalPageNumber, isTitle: isActualTitlePage }, `Queueing job: ${jobName}`);
         return {
             name: jobName,
-            queueName: QueueName.IllustrationGeneration, // Target the existing worker queue
+            queueName: QueueName.IllustrationGeneration,
             data: illustrationJobData,
             opts: { 
                 attempts: 3,

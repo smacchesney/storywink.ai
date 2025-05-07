@@ -3,6 +3,7 @@ import { v2 as cloudinary } from 'cloudinary';
 import { db as prisma } from '@/lib/db'; // Import shared instance as prisma for less code change
 import { auth } from '@clerk/nextjs/server'; // Correct import for server-side
 import logger from '@/lib/logger';
+import { PageType } from '@prisma/client'; // Import PageType
 
 // --- DEBUG: Log environment variables before configuration ---
 console.log("--- Cloudinary Env Vars Check ---");
@@ -49,13 +50,28 @@ export async function POST(request: Request) {
 
     try {
         const formData = await request.formData();
-        const files = formData.getAll('files') as File[]; // Assuming files are sent under the 'files' key
+        const files = formData.getAll('files') as File[];
+        const bookId = formData.get('bookId') as string | null; // <-- Get optional bookId
 
         if (!files || files.length === 0) {
             return NextResponse.json({ error: 'No files provided' }, { status: 400 });
         }
 
         const uploadedAssets = [];
+        let bookPageCount = 0; // To track index for new pages if bookId provided
+        
+        // If bookId provided, fetch initial page count for indexing
+        if (bookId) {
+           // Verify user owns the book first
+           const book = await prisma.book.findUnique({
+               where: { id: bookId, userId: userId },
+               select: { _count: { select: { pages: true } } } // Efficiently get page count
+           });
+           if (!book) {
+               return NextResponse.json({ error: 'Book not found or permission denied' }, { status: 404 });
+           }
+           bookPageCount = book._count.pages;
+        }
 
         for (const file of files) {
             // --- Validation (Add more as needed) ---
@@ -109,24 +125,48 @@ export async function POST(request: Request) {
             }
             // --- End Explicit DB Connection Test ---
 
-            // --- Save Asset to Database (Using correct field names from schema.prisma) ---
-            const newAsset = await prisma.asset.create({
-                data: {
-                    userId: userId,
-                    publicId: cloudinaryResult.public_id, // Correct field name
-                    url: cloudinaryResult.secure_url,       // Correct field name
-                    thumbnailUrl: cloudinary.url(cloudinaryResult.public_id, {
-                        width: 200, height: 200, crop: 'fill', quality: 'auto', fetch_format: 'auto'
-                    }),
-                    fileType: file.type,                   // Correct field name
-                    size: file.size,
-                },
-            });
+            // --- Transaction: Create Asset AND potentially Page --- 
+            const createdData = await prisma.$transaction(async (tx) => {
+                // Create Asset
+                const newAsset = await tx.asset.create({
+                    data: {
+                        userId: userId,
+                        publicId: cloudinaryResult.public_id, 
+                        url: cloudinaryResult.secure_url,       
+                        thumbnailUrl: cloudinary.url(cloudinaryResult.public_id, {
+                            width: 200, height: 200, crop: 'fill', quality: 'auto', fetch_format: 'auto'
+                        }),
+                        fileType: file.type,                   
+                        size: file.size,
+                    },
+                });
 
-            uploadedAssets.push({
-                 id: newAsset.id,
-                 thumbnailUrl: newAsset.thumbnailUrl,
+                // If bookId was provided, create Page record
+                if (bookId) {
+                    await tx.page.create({
+                        data: {
+                            bookId: bookId,
+                            assetId: newAsset.id,
+                            pageNumber: bookPageCount + 1, // Next page number
+                            index: bookPageCount,       // Next index (0-based)
+                            originalImageUrl: newAsset.thumbnailUrl || newAsset.url, // Use thumb or full url
+                            pageType: PageType.SINGLE, // Default
+                            isTitlePage: false, // New pages added are never title pages initially
+                            // Text, generatedUrl, etc. are null by default
+                        }
+                    });
+                    bookPageCount++; // Increment for the next potential file in this batch
+                }
+                
+                // Return asset data needed by the frontend
+                return {
+                    id: newAsset.id,
+                    thumbnailUrl: newAsset.thumbnailUrl,
+                };
             });
+            // --- End Transaction --- 
+
+            uploadedAssets.push(createdData);
         }
 
         return NextResponse.json({ assets: uploadedAssets }, { status: 201 });

@@ -54,6 +54,7 @@ model Book {
   keyCharacters     String?
   specialObjects    String?
   excitementElement String?
+  coverAssetId      String?
   promptTokens      Int?
   completionTokens  Int?
   totalTokens       Int?
@@ -70,6 +71,7 @@ model Page {
   id         String @id @default(cuid())
   bookId     String
   pageNumber Int
+  index      Int    @default(0)
 
   assetId String?
   asset   Asset?  @relation(fields: [assetId], references: [id])

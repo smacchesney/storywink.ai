@@ -12,7 +12,7 @@ import { Worker, Job } from 'bullmq';
 // Remove .js extensions
 import { QueueName, workerConnectionOptions } from '../../lib/queue/index'; 
 import { StoryGenerationJobData } from '../../app/api/generate/story/route';
-import { createVisionStoryGenerationPrompt, systemPrompt } from '../../lib/openai/prompts';
+import { createVisionStoryGenerationPrompt, systemPrompt, StoryGenerationInput } from '../../lib/openai/prompts';
 import openai from '../../lib/openai/index';
 import { db } from '../../lib/db';
 import { Prisma, Asset, BookStatus, PageType } from '@prisma/client';
@@ -37,27 +37,16 @@ const winkifiedResponseSchema = z.record(
 // --- Job Processing Logic ---
 
 // Use the imported job data type definition (matches API route)
-type WorkerJobData = StoryGenerationJobData; // Use the imported type
+type WorkerJobData = StoryGenerationJobData; 
 
 async function processStoryGenerationJob(job: Job<WorkerJobData>): Promise<{ message: string; bookId: string; finalStatus: BookStatus }> {
-  // Extract data from the NEW job structure
+  // Extract data from the job structure
   const { bookId, userId, promptContext, storyPages, isWinkifyEnabled } = job.data;
   
   // Add null/undefined checks just in case
   if (!userId || !bookId || !promptContext || !storyPages || storyPages.length === 0) {
     logger.error({ jobId: job.id, data: job.data }, 'Missing critical job data (userId, bookId, promptContext, or storyPages)');
     throw new Error('Invalid job data received.');
-  }
-  
-  // Fetch the book record to get necessary details like pageLength
-  const book = await db.book.findUnique({
-      where: { id: bookId },
-      select: { pageLength: true /* Add other fields if needed later */ }
-  });
-
-  if (!book) {
-      logger.error({ jobId: job.id, bookId }, "Book not found in database for story generation job.");
-      throw new Error('Book not found.');
   }
 
   logger.info({ jobId: job.id, userId, bookId, bookTitle: promptContext.bookTitle, pageCount: storyPages.length }, 'Processing story generation job...');
@@ -70,38 +59,19 @@ async function processStoryGenerationJob(job: Job<WorkerJobData>): Promise<{ mes
     });
     logger.info({ jobId: job.id, bookId }, 'Book status updated to GENERATING');
 
-    // --- Generate Text for ALL pages in one go --- 
+    // --- Generate Text for ALL pages --- 
 
-    // Step 1: Construct the prompt with full book context
-    // We need the full Asset objects here for the prompt function
-    // Let's assume the API route provided them correctly in the jobData structure
-    // (We might need to adjust the API route and jobData structure again if not)
-    // Constructing the input based on jobData and required StoryGenerationInput type
-    // This requires mapping jobData.storyPages back to droppedAssets and getting full assets
-    // **Alternative (Simpler if API Route can fetch):** Pass required data directly
-    
-    // Let's refine jobData structure first (needs corresponding API route change)
-    // Assuming jobData now includes: bookId, userId, promptContext, allAssets, droppedAssetsMap
-    const fullPromptInput = {
-        ...promptContext, // Includes childName, bookTitle, tone, theme etc.
-        pageCount: book.pageLength as 8 | 12 | 16, // Use fetched pageLength, assert type
-        // Reconstruct droppedAssets map (index -> assetId)
-        droppedAssets: storyPages.reduce((acc, page, index) => {
-           acc[index] = page.assetId;
-           return acc;
-        }, {} as Record<number, string | null>),
-        // We need the full Asset objects based on the assetIds
-        // This assumes we query/pass them in jobData correctly
-        assets: storyPages.map(p => ({ 
-            id: p.assetId || '', // Provide default empty string for id if null
-            url: p.originalImageUrl,
-        })).filter(a => a.url) as unknown as Asset[], // Filter out pages without URLs, cast needed due to partial Asset
-        isWinkifyEnabled: isWinkifyEnabled // <<< Verify flag is passed here
+    // Step 1: Construct the prompt input using data directly from the job
+    const promptInput: StoryGenerationInput = {
+        ...promptContext, // Contains bookTitle, childName, artStyle, etc.
+        storyPages: storyPages, // Pass the pre-filtered, pre-sorted pages array
+        isWinkifyEnabled: isWinkifyEnabled,
+        // isDoubleSpread needs to be in promptContext if still relevant
+        isDoubleSpread: promptContext.isDoubleSpread || false 
     };
 
-    // Log the input being sent to the prompt function for verification
-    logger.info({ jobId: job.id, bookId }, "Constructing full story prompt...");
-    const messageContent = createVisionStoryGenerationPrompt(fullPromptInput);
+    logger.info({ jobId: job.id, bookId }, "Constructing story prompt...");
+    const messageContent = createVisionStoryGenerationPrompt(promptInput);
 
     // Log the structured prompt being sent
     logger.info({ jobId: job.id, bookId, messages: JSON.stringify(messageContent, null, 2) }, "OpenAI Story Prompt Messages:");
@@ -168,7 +138,6 @@ async function processStoryGenerationJob(job: Job<WorkerJobData>): Promise<{ mes
     // Step 4: Prepare page update promises
     const pageUpdatePromises: Promise<any>[] = [];
     for (const page of storyPages) {
-        // Find the text for this pageNumber in the parsed JSON
         const pageNumberStr = String(page.pageNumber);
         let textContent: string | undefined | null = null;
         let notesContent: string | undefined | null = null;

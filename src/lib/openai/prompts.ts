@@ -1,4 +1,4 @@
-import { Asset } from '@/generated/prisma/client';
+import { Asset } from '@prisma/client';
 
 // ----------------------------------
 // TYPES
@@ -11,15 +11,18 @@ type MessageContentPart =
       image_url: { url: string; detail?: 'low' | 'high' | 'auto' };
     };
 
-// Simplified Input Type
+// Simplified Input Type - Expects pre-filtered/sorted pages
 export interface StoryGenerationInput {
   childName: string;
   bookTitle: string;
-  pageCount: 8 | 12 | 16;
   isDoubleSpread: boolean;
   artStyle?: string;
-  droppedAssets: Record<number, string | null>;
-  assets: Asset[];
+  storyPages: {
+    pageId: string; 
+    pageNumber: number;
+    assetId: string | null; 
+    originalImageUrl: string | null; 
+  }[];
   isWinkifyEnabled?: boolean;
 }
 
@@ -44,30 +47,26 @@ export function createVisionStoryGenerationPrompt(
     type: 'text',
     text: `# Configuration\nChild's Name: ${input.childName || 'the child'}\nBook Title: ${
       input.bookTitle || 'My Special Story'
-    }\nPage Count: ${input.pageCount}`,
+    }\nPage Count: ${input.storyPages.length}`,
   });
 
   // ---------- STORYBOARD (IMAGES) ----------
   msg.push({ type: 'text', text: '# Storyboard Sequence' });
 
-  const gridLen = input.isDoubleSpread ? input.pageCount / 2 : input.pageCount;
-
-  for (let i = 0; i < gridLen; i++) {
-    const assetId = input.droppedAssets[i];
-    const asset = assetId ? input.assets.find((a) => a.id === assetId) : null;
-    msg.push({ type: 'text', text: `--- Page ${i + 1} ---` });
-    if (asset?.url) {
+  input.storyPages.forEach((page) => {
+    msg.push({ type: 'text', text: `--- Page ${page.pageNumber} ---` });
+    if (page.originalImageUrl) {
       msg.push({
         type: 'image_url',
-        image_url: { url: asset.url, detail: 'high' },
+        image_url: { url: page.originalImageUrl, detail: 'high' },
       });
     } else {
       msg.push({
         type: 'text',
-        text: `[No Image Provided for Page ${i + 1}]`,
+        text: `[No Image Provided for Page ${page.pageNumber}]`,
       });
     }
-  }
+  });
   msg.push({ type: 'text', text: '--- End Storyboard ---' });
 
   // ---------- INSTRUCTIONS ----------
@@ -83,7 +82,7 @@ export function createVisionStoryGenerationPrompt(
     `- **Seamlessly weave in** user details where applicable:`,
     `  - Child's Name: \"${input.childName || '(Not Provided)'}\" (Use this name in the story text!)`,
     `  - Book Title: \"${input.bookTitle || '(Not Provided)'}\"`,
-    `- Generate **1-3 simple sentences per page** (Page 1, Page 2, etc.).`,
+    `- Generate **1-3 simple sentences per page** (for the ${input.storyPages.length} pages provided).`,
     `  - Adjust slightly across pages to maintain good narrative flow.`
   ].join('\n');
 

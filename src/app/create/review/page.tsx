@@ -4,11 +4,11 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Image from 'next/image';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { useRouter } from 'next/navigation';
-import { useBookCreation, BookData } from '@/context/BookCreationContext';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { useBookCreation } from '@/context/BookCreationContext';
 import { toast } from 'sonner';
 import { Loader2 } from 'lucide-react';
-import { BookStatus, Page } from '@prisma/client'; // Use direct prisma client types
+import { BookStatus, Page, Book } from '@prisma/client'; // Use direct prisma client types
 import { cn } from '@/lib/utils';
 import RoughButton from "@/components/ui/rough-button";
 import RoughBorder from "@/components/ui/rough-border";
@@ -24,16 +24,24 @@ type PageData = {
   isTitlePage?: boolean; // Add a flag for easy identification
 };
 
+type FullBookData = Book & { pages: Page[] }; // Type for the full fetched book
+
 const POLLING_INTERVAL = 5000; // Check every 5 seconds
 
 export default function ReviewPage() {
   const router = useRouter();
-  const { bookData, setBookData } = useBookCreation(); 
+  const searchParams = useSearchParams(); // <-- Get search params
+  // Keep context for now, but don't rely on it for bookId
+  const { bookData: contextBookData, setBookData } = useBookCreation(); 
+
+  // Get bookId from URL query parameter
+  const bookIdFromUrl = searchParams.get('bookId'); 
 
   // State hooks
-  const [pages, setPages] = useState<PageData[]>([]);
+  const [pages, setPages] = useState<PageData[]>([]); // Holds ALL pages (cover at index 0)
+  const [bookDetails, setBookDetails] = useState<Book | null>(null);
   const [isFetchingInitialData, setIsFetchingInitialData] = useState(true);
-  const [currentIndex, setCurrentIndex] = useState(0);
+  const [currentIndex, setCurrentIndex] = useState(0); // Index in the FULL pages array
   const [confirmed, setConfirmed] = useState<boolean[]>([]);
   const [isLoadingText, setIsLoadingText] = useState(false);
   const [isSavingPage, setIsSavingPage] = useState(false);
@@ -49,6 +57,8 @@ export default function ReviewPage() {
 
   const isMountedRef = useRef(true);
 
+  const [pendingTitleReview, setPendingTitleReview] = useState(''); // <-- State for pending title edits
+
   useEffect(() => {
     isMountedRef.current = true;
     return () => {
@@ -62,19 +72,21 @@ export default function ReviewPage() {
     };
   }, []);
 
-  // --- Initial Setup Logic (Refined Polling Trigger) ---
+  // --- Initial Setup Logic --- 
   useEffect(() => {
     const fetchBookData = async () => {
-      if (!bookData?.bookId) {
-        toast.error("Book ID not found. Cannot load review data.");
+      const bookIdToFetch = bookIdFromUrl;
+
+      if (!bookIdToFetch) { // <-- Check bookId from URL
+        toast.error("Book ID not found in URL. Cannot load review data.");
         setIsFetchingInitialData(false);
         return;
       }
 
-      console.log(`Review Page: Fetching initial data for bookId: ${bookData.bookId}`);
+      console.log(`Review Page: Fetching initial data for bookId: ${bookIdToFetch}`);
       setIsFetchingInitialData(true);
       try {
-        const response = await fetch(`/api/book/${bookData.bookId}`);
+        const response = await fetch(`/api/book/${bookIdToFetch}`);
         if (!isMountedRef.current) return;
 
         if (!response.ok) {
@@ -82,68 +94,62 @@ export default function ReviewPage() {
           throw new Error(`Failed to fetch book data: ${errorText}`);
         }
 
-        const fetchedBook = await response.json();
+        const fetchedBook: FullBookData = await response.json();
         if (!isMountedRef.current) return;
 
         if (!fetchedBook || !fetchedBook.pages) {
           throw new Error("Fetched data is invalid or missing pages.");
         }
 
-        console.log("Review Page: Fetched Book Data:", fetchedBook);
+        console.log("Review Page: Fetched Full Book Data:", fetchedBook);
+        setBookDetails(fetchedBook);
         setCurrentBookStatus(fetchedBook.status);
 
-        // Handle based on fetched status and pages presence
-        const currentStatus = fetchedBook.status as BookStatus;
+        const sortedPages = [...fetchedBook.pages].sort((a, b) => a.index - b.index);
 
-        if (currentStatus === BookStatus.GENERATING && (!fetchedBook.pages || fetchedBook.pages.length === 0)) {
-          // Status is GENERATING, but pages haven't been saved yet by the worker.
-          // Start polling for text/status change.
-          console.log("Review Page: Status is GENERATING, but no pages found yet. Starting text polling.");
-          setIsLoadingText(true);
-          setNeedsTextPolling(true);
-          setIsAwaitingFinalStatus(false); // Not awaiting final illustration status yet
-          setPages([]); // Ensure pages state is empty
-        } else if (fetchedBook.pages && fetchedBook.pages.length > 0) {
-          // Pages exist, map them and determine next steps
-          console.log("Review Page: Fetched book content:", JSON.stringify(fetchedBook, null, 2));
-          const mappedPages: PageData[] = fetchedBook.pages.map((p: Page) => ({
-            id: p.id,
-            text: p.text,
-            originalImageUrl: p.originalImageUrl, // Use field from Page model
-            assetId: p.assetId,
-            generatedImageUrl: p.generatedImageUrl,
-            isTitlePage: p.isTitlePage || false,
-            pageNumber: p.pageNumber,
-          }));
+        if (sortedPages.length > 0) {
+            const mappedPages: PageData[] = sortedPages.map((p: Page) => ({
+              id: p.id,
+              text: p.text,
+              originalImageUrl: p.originalImageUrl, 
+              assetId: p.assetId,
+              generatedImageUrl: p.generatedImageUrl,
+              isTitlePage: p.isTitlePage || (p.index === 0),
+              pageNumber: p.pageNumber,
+            }));
+            console.log("Review Page: Successfully mapped pages:", mappedPages); // Log after successful map
+            setPages(mappedPages);
+            setBookDetails(fetchedBook); // Ensure book details are set
+            setPendingTitleReview(fetchedBook.title || ''); // <-- Initialize pending title
+            
+            // Initialize confirmed: ALL false initially
+            setConfirmed(sortedPages.map(() => false)); 
+            
+            setCurrentIndex(0);
 
-          console.log("Review Page: Updating pages state with fetched text:", mappedPages);
-          setPages(mappedPages);
-          setConfirmed(fetchedBook.pages.map((p: Page) => p.textConfirmed || p.isTitlePage));
-    setCurrentIndex(0);
+            const hasMissingText = mappedPages.some(p => !p.isTitlePage && p.text === null);
 
-          const hasMissingText = mappedPages.some(p => !p.isTitlePage && p.text === null);
-
-          if (hasMissingText && currentStatus === BookStatus.GENERATING) {
-            // This case should be less common now, but handle if pages exist but text is null
-            console.log(`Review Page: Text missing and status is ${currentStatus}. Starting text polling.`);
-            setIsLoadingText(true);
-      setNeedsTextPolling(true);
-          } else if (currentStatus === BookStatus.ILLUSTRATING) {
-      console.log("Review Page: Status is ILLUSTRATING, setting up final status polling.");
-      setIsLoadingText(false); 
-      setNeedsTextPolling(false);
-      setIsAwaitingFinalStatus(true); 
-    } else {
-            // Includes COMPLETED, FAILED, DRAFT (if pages somehow exist)
-            console.log(`Review Page: Initial status ${currentStatus}. No text polling needed.`);
-      setIsLoadingText(false);
-      setNeedsTextPolling(false);
-      setIsAwaitingFinalStatus(false);
-    }
+            if (hasMissingText && fetchedBook.status === BookStatus.GENERATING) {
+              // This case should be less common now, but handle if pages exist but text is null
+              console.log(`Review Page: Text missing and status is ${fetchedBook.status}. Starting text polling.`);
+              setIsLoadingText(true);
+              setNeedsTextPolling(true);
+            } else if (fetchedBook.status === BookStatus.ILLUSTRATING) {
+              console.log("Review Page: Status is ILLUSTRATING, setting up final status polling.");
+              setIsLoadingText(false); 
+              setNeedsTextPolling(false);
+              setIsAwaitingFinalStatus(true); 
+            } else {
+              // Includes COMPLETED, FAILED, DRAFT (if pages somehow exist)
+              console.log(`Review Page: Initial status ${fetchedBook.status}. No text polling needed.`);
+              setIsLoadingText(false);
+              setNeedsTextPolling(false);
+              setIsAwaitingFinalStatus(false);
+            }
         } else {
            // Status is not GENERATING, but no pages found - this is an error state.
-           console.error(`Review Page: Status is ${currentStatus}, but no pages found.`);
-           throw new Error(`Book status is ${currentStatus}, but no pages were loaded.`);
+           console.error(`Review Page: Status is ${fetchedBook.status}, but no pages found.`);
+           throw new Error(`Book status is ${fetchedBook.status}, but no pages were loaded.`);
         }
       } catch (error) {
         console.error("Error fetching initial review data:", error);
@@ -160,14 +166,15 @@ export default function ReviewPage() {
 
     fetchBookData();
 
-  }, [bookData?.bookId]); // Depend only on bookId from context
+  }, [bookIdFromUrl]); // <-- Depend on bookId from URL
 
-  // --- Text Polling Function (Fetch status first, then content) ---
+  // --- Text Polling Function --- 
   const checkTextStatus = useCallback(async () => {
-    if (!isMountedRef.current || !bookData?.bookId || !needsTextPolling) return;
+    const bookIdToPoll = bookIdFromUrl;
+    if (!isMountedRef.current || !bookIdToPoll || !needsTextPolling) return;
     console.log("Polling for text generation status...");
     try {
-      const statusRes = await fetch(`/api/book-status?bookId=${bookData.bookId}`); 
+      const statusRes = await fetch(`/api/book-status?bookId=${bookIdToPoll}`); 
       if (!isMountedRef.current) return;
       if (!statusRes.ok) {
         const errorText = await statusRes.text().catch(() => `HTTP error ${statusRes.status}`);
@@ -184,7 +191,7 @@ export default function ReviewPage() {
               if (textPollingIntervalRef.current) clearInterval(textPollingIntervalRef.current);
               setNeedsTextPolling(false);
               try {
-                  const contentRes = await fetch(`/api/book/${bookData.bookId}`); 
+                  const contentRes = await fetch(`/api/book/${bookIdToPoll}`); 
                   if (!isMountedRef.current) return;
                   if (!contentRes.ok) throw new Error(`Failed to fetch book content (${contentRes.status})`);
                   const fetchedBook = await contentRes.json();
@@ -237,12 +244,12 @@ export default function ReviewPage() {
           toast.error(`Error checking text status: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
-  }, [bookData?.bookId, bookData?.assets, needsTextPolling, isLoadingText]); 
+  }, [bookIdFromUrl, needsTextPolling, isLoadingText]); // <-- Update dependencies
 
-  // --- Effect to Manage Text Polling Interval (Reverted to previous pattern) ---
+  // --- Effect to Manage Text Polling Interval --- 
   useEffect(() => {
-    // Start polling only if needed AND initial fetch is complete
-    if (isFetchingInitialData || !needsTextPolling || !bookData?.bookId) {
+    const bookIdToPoll = bookIdFromUrl;
+    if (isFetchingInitialData || !needsTextPolling || !bookIdToPoll) {
       if (textPollingIntervalRef.current) {
         clearInterval(textPollingIntervalRef.current);
         textPollingIntervalRef.current = null;
@@ -251,7 +258,7 @@ export default function ReviewPage() {
     }
 
     if (!textPollingIntervalRef.current) {
-      console.log(`Starting text polling interval for bookId: ${bookData.bookId}`);
+      console.log(`Starting text polling interval for bookId: ${bookIdToPoll}`);
       checkTextStatus(); // Initial check immediately
       textPollingIntervalRef.current = setInterval(checkTextStatus, POLLING_INTERVAL);
     }
@@ -263,15 +270,16 @@ export default function ReviewPage() {
         textPollingIntervalRef.current = null;
       }
     };
-  }, [isFetchingInitialData, needsTextPolling, bookData?.bookId, checkTextStatus]);
+  }, [isFetchingInitialData, needsTextPolling, bookIdFromUrl, checkTextStatus]); // <-- Update dependencies
 
   // --- Final Status Polling Function --- 
   const checkFinalBookStatus = useCallback(async () => {
-    if (!isMountedRef.current || !bookData?.bookId || !isAwaitingFinalStatus) return;
+    const bookIdToPoll = bookIdFromUrl;
+    if (!isMountedRef.current || !bookIdToPoll || !isAwaitingFinalStatus) return;
 
     console.log("Polling for final book status...");
     try {
-      const statusRes = await fetch(`/api/book-status?bookId=${bookData.bookId}`);
+      const statusRes = await fetch(`/api/book-status?bookId=${bookIdToPoll}`);
       if (!isMountedRef.current) return;
 
       if (!statusRes.ok) {
@@ -295,10 +303,10 @@ export default function ReviewPage() {
         // Perform redirect based on final status
         if (finalStatus === BookStatus.COMPLETED) {
           toast.success("Book illustrations complete! Opening preview...");
-          router.push(`/book/${bookData.bookId}/preview`);
+          router.push(`/book/${bookIdToPoll}/preview`);
         } else { // PARTIAL or FAILED
           toast.error("Some illustrations failed or were flagged. Please review and fix.");
-          router.push(`/create?bookId=${bookData.bookId}&fix=1`); // Redirect to editor in fix mode
+          router.push(`/create?bookId=${bookIdToPoll}&fix=1`); // Redirect to editor in fix mode
         }
       } else {
         // Still ILLUSTRATING, continue polling
@@ -314,12 +322,12 @@ export default function ReviewPage() {
         toast.error(`Error checking final book status: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
-  }, [bookData?.bookId, isAwaitingFinalStatus, router]);
+  }, [bookIdFromUrl, isAwaitingFinalStatus, router]); // <-- Update dependencies
 
   // --- Effect to Manage Final Status Polling Interval --- 
   useEffect(() => {
-    // Start polling only if needed AND initial fetch is complete
-    if (isFetchingInitialData || !isAwaitingFinalStatus || !bookData?.bookId) {
+    const bookIdToPoll = bookIdFromUrl;
+    if (isFetchingInitialData || !isAwaitingFinalStatus || !bookIdToPoll) {
       if (finalStatusPollingIntervalRef.current) {
         clearInterval(finalStatusPollingIntervalRef.current);
         finalStatusPollingIntervalRef.current = null;
@@ -328,7 +336,7 @@ export default function ReviewPage() {
     }
 
     if (!finalStatusPollingIntervalRef.current) {
-      console.log(`Starting FINAL status polling interval for bookId: ${bookData.bookId}`);
+      console.log(`Starting FINAL status polling interval for bookId: ${bookIdToPoll}`);
       checkFinalBookStatus(); // Initial check
       finalStatusPollingIntervalRef.current = setInterval(checkFinalBookStatus, POLLING_INTERVAL);
     }
@@ -340,64 +348,79 @@ export default function ReviewPage() {
         finalStatusPollingIntervalRef.current = null;
       }
     };
-  }, [isFetchingInitialData, isAwaitingFinalStatus, bookData?.bookId, checkFinalBookStatus]);
+  }, [isFetchingInitialData, isAwaitingFinalStatus, bookIdFromUrl, checkFinalBookStatus]); // <-- Update dependencies
 
-  // Navigation handlers
+  // Navigation handlers (operate on full pages array index)
   const goPrev = () => setCurrentIndex(i => Math.max(i - 1, 0));
   const goNext = () => setCurrentIndex(i => Math.min(i + 1, pages.length - 1));
 
-  // Toggle confirmation per page
+  // Toggle confirmation per page / title
   const toggleConfirm = async () => {
-    if (!bookData?.bookId || !pages[currentIndex]) {
-      toast.error("Cannot confirm page: Missing book or page data.");
-      return;
-    }
     const currentPage = pages[currentIndex];
-    
-    // Add guard for missing page ID
-    if (!currentPage.id) {
-        toast.error("Page ID is missing. Cannot save confirmation. Please wait for generation to complete.");
-        return;
+    const bookIdToUse = bookIdFromUrl;
+
+    // No bookId or trying to confirm non-existent page index
+    if (!bookIdToUse || !currentPage) { 
+        toast.error("Cannot confirm: Missing book or page data.");
+        return; 
     }
     
     const currentlyConfirmed = confirmed[currentIndex];
 
+    // If already confirmed, mark as unconfirmed locally (no API call needed to unconfirm)
     if (currentlyConfirmed) {
       setConfirmed(arr => {
         const copy = [...arr];
         copy[currentIndex] = false;
         return copy;
       });
-      toast.info(`Page ${currentIndex + 1} marked as unconfirmed.`);
-      // Optionally PATCH textConfirmed: false here too
+      toast.info(currentIndex === 0 ? "Title page marked as unconfirmed." : `Page ${currentIndex} marked as unconfirmed.`);
       return;
     }
-
+    
+    // --- Save and Confirm --- 
     setIsSavingPage(true);
     try {
-      // Use the validated currentPage.id
-      const response = await fetch(`/api/book/${bookData.bookId}/page/${currentPage.id}`,
-        {
+      let response: Response;
+      if (currentIndex === 0) { // Saving Title Page
+        if (!pendingTitleReview.trim()) throw new Error("Book title cannot be empty.");
+        response = await fetch(`/api/book/${bookIdToUse}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-              text: currentPage.text || '',
-              textConfirmed: true
-            }), 
-        }
-      );
+          body: JSON.stringify({ title: pendingTitleReview }), // Send updated title
+        });
+      } else { // Saving Story Page
+        if (!currentPage.id) throw new Error("Page ID is missing, cannot save.");
+        response = await fetch(`/api/book/${bookIdToUse}/page/${currentPage.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: currentPage.text || '', textConfirmed: true }), 
+        });
+      }
+
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `Failed to save page ${currentIndex + 1} (Status: ${response.status})`);
+        throw new Error(errorData.error || `Failed to save (Status: ${response.status})`);
       }
+      
+      // Update main state *after* successful save
+      if (currentIndex === 0) {
+          setBookDetails(prev => prev ? { ...prev, title: pendingTitleReview } : null);
+      } else {
+          // Optionally update pages state if API returned updated page, but text is already set locally
+          // setPages(prev => ...);
+      }
+      
+      // Mark as confirmed locally
       setConfirmed(arr => {
         const copy = [...arr];
         copy[currentIndex] = true; 
         return copy;
       });
-      toast.success(`Page ${currentIndex + 1} saved and confirmed!`);
+      toast.success(currentIndex === 0 ? "Title page saved and confirmed!" : `Page ${currentIndex} saved and confirmed!`);
+
     } catch (error) {
-      console.error("Error saving page:", error);
+      console.error("Error saving page/title:", error);
       toast.error(`${error instanceof Error ? error.message : String(error)}`);
     } finally {
        if (isMountedRef.current) { 
@@ -422,7 +445,8 @@ export default function ReviewPage() {
 
   // --- Illustrate Book Handler (MODIFIED FOR POLLING) ---
   const handleIllustrate = async () => {
-     if (!bookData?.bookId || !allConfirmed || isLoadingText) {
+    const bookIdToUse = bookIdFromUrl;
+    if (!bookIdToUse || !allConfirmed || isLoadingText) {
        toast.warning("Cannot start illustration. Ensure all pages are confirmed and story text is loaded.");
        return;
      }
@@ -436,7 +460,7 @@ export default function ReviewPage() {
         const response = await fetch('/api/generate/illustrations', {
            method: 'POST',
            headers: { 'Content-Type': 'application/json' },
-           body: JSON.stringify({ bookId: bookData.bookId }),
+          body: JSON.stringify({ bookId: bookIdToUse }),
         });
         if (!response.ok && response.status !== 202) {
             const errorData = await response.json().catch(() => ({ message: "Unknown error occurred" }));
@@ -497,62 +521,51 @@ export default function ReviewPage() {
   }
 
   const currentPageData = pages[currentIndex];
-  const isTitlePageSelected = currentPageData?.isTitlePage === true;
+  const isTitlePageSelected = currentIndex === 0 && pages.length > 0; // Simpler check
 
   // Main Render
   return (
-    <div className="flex h-[calc(100vh-var(--site-header-height)-var(--site-footer-height))] w-full">
-      {/* Left Panel - Keep the image sizing fixes */}
-      <div className="flex-2 p-6 bg-white flex flex-col items-center">
-        {/* Page Image/Title Container */}
-        <div className="flex-grow flex items-center justify-center w-full mb-4">
-          <div className="relative w-full max-w-[500px] max-h-[500px] overflow-hidden rounded-lg shadow bg-muted aspect-square">
+    <div className="flex flex-col md:flex-row h-[calc(100vh-var(--site-header-height))] w-full">
+      {/* Left Panel */}
+      <div className="flex-1 md:flex-[0_0_55%] lg:flex-[0_0_60%] p-4 md:p-6 bg-white flex flex-col items-center overflow-y-auto">
+        {/* Image Display - Reduced Size */} 
+        <div className="w-full flex justify-center mb-4 flex-shrink-0">
+          <div className="relative w-full max-w-[300px] md:max-w-[400px] overflow-hidden rounded-lg shadow bg-muted aspect-square">
             {/* Show Original Image URL from Page data */}
-            {isTitlePageSelected ? (
-              // Show Title page image if available, otherwise placeholder text
-              currentPageData?.originalImageUrl ? (
-                <Image
-                  src={currentPageData.originalImageUrl}
-                  alt={`Title Page Original Photo`}
-                  fill
-                  className="object-contain"
-                  priority={true}
-                />
-              ) : (
-              <div className="w-full h-full flex items-center justify-center">
-                   <span className="text-2xl font-semibold text-muted-foreground">Title Page</span>
-              </div>
-              )
-            ) : currentPageData?.originalImageUrl ? (
+            {currentPageData?.originalImageUrl ? (
               <Image
                 src={currentPageData.originalImageUrl}
-                alt={`Page ${currentIndex + 1} Original Photo`}
+                alt={isTitlePageSelected ? `Title Page Original Photo` : `Page ${currentIndex} Original Photo`}
                 fill
                 className="object-contain"
-                priority={true}
+                priority={currentIndex < 2}
               />
             ) : (
               <div className="w-full h-full flex items-center justify-center">
-                   <span className="text-xs text-muted-foreground">No Image</span>
+                   <span className="text-2xl font-semibold text-muted-foreground">
+                     {isTitlePageSelected ? 'Title Page' : `Page ${currentIndex}`}
+                   </span>
               </div>
             )}
           </div>
         </div>
-        {/* Text Area - Conditionally Rendered (Hide for Title Page) */}
-        {!isTitlePageSelected && (
-          isLoadingText && currentIndex > 0 ? ( // Check currentIndex > 0 to ensure it's not title page placeholder
-            <div className="w-full h-40 mb-4 rounded-md border border-input bg-background px-3 py-2 flex items-center justify-center">
-              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground mr-2" />
-              <span className="text-muted-foreground">Generating story text...</span>
-            </div>
+        
+        {/* Text Area - Allow flex-grow */}
+        {isLoadingText && !isTitlePageSelected ? (
+          <div className="w-full h-40 mb-4 rounded-md border border-input bg-background px-3 py-2 flex items-center justify-center">
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground mr-2" />
+            <span className="text-muted-foreground">Generating story text...</span>
+          </div>
         ) : (
-            <Textarea
-              className="w-full h-40 mb-4 text-2xl text-center p-6 resize-none"
-              value={currentPageData?.text ?? ''}
-              onChange={(e) => {
-                // Only allow editing for non-title pages
-                if (isTitlePageSelected) return;
-                const newText = e.target.value;
+          <Textarea
+            className="w-full mb-4 text-base md:text-lg lg:text-xl text-center p-4 resize-none flex-grow min-h-[100px]"
+            value={isTitlePageSelected ? pendingTitleReview : (currentPageData?.text ?? '')}
+            readOnly={isWorking || isStartingIllustration || isTitlePageSelected}
+            onChange={(e) => {
+              const newText = e.target.value;
+              if (isTitlePageSelected) {
+                setPendingTitleReview(newText); // Update pending title
+              } else {
                 setPages(prev => {
                   const copy = [...prev];
                   if (copy[currentIndex]) {
@@ -560,20 +573,21 @@ export default function ReviewPage() {
                   }
                   return copy;
                 });
-                setConfirmed(prev => {
-                  const copy = [...prev];
-                  if (copy[currentIndex] !== undefined) {
-                     copy[currentIndex] = false;
-                  }
-                  return copy;
-                });
-              }}
-              readOnly={isWorking || isStartingIllustration || isTitlePageSelected} // Make title read-only
-            />
-          )
+              }
+              // Mark current item as unconfirmed on any edit
+              setConfirmed(prev => {
+                const copy = [...prev];
+                if (copy[currentIndex] !== undefined) {
+                   copy[currentIndex] = false; 
+                }
+                return copy;
+              });
+            }}
+          />
         )}
-        {/* Navigation and Confirm Row */}
-        <div className="flex justify-between items-center w-full mb-4">
+        
+        {/* Navigation and Confirm Row - Add flex-shrink-0 */}
+        <div className="flex justify-between items-center w-full mb-4 flex-shrink-0">
           <div className="flex space-x-2">
             <Button onClick={goPrev} disabled={currentIndex === 0 || isWorking || isStartingIllustration}>Previous</Button>
             <Button onClick={goNext} disabled={currentIndex === pages.length - 1 || isWorking || isStartingIllustration}>Next</Button>
@@ -582,8 +596,7 @@ export default function ReviewPage() {
             <Button
               variant={confirmed[currentIndex] ? 'default' : 'outline'}
               onClick={toggleConfirm}
-              // Disable confirm for Title page
-              disabled={isWorking || isStartingIllustration || !currentPageData || isTitlePageSelected} 
+              disabled={isWorking || isStartingIllustration || !currentPageData}
             >
               {isSavingPage ? (
                 <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Saving...</>
@@ -595,8 +608,8 @@ export default function ReviewPage() {
             </Button>
           </div>
         </div>
-         {/* Bottom Buttons Row */}
-         <div className="flex justify-between items-center w-full mt-auto pt-4 border-t">
+         {/* Bottom Buttons Row - Add flex-shrink-0 */} 
+         <div className="flex justify-between items-center w-full mt-auto pt-4 border-t flex-shrink-0">
             <Button variant="ghost" onClick={handleRegenerate} disabled={isWorking}>
               Regenerate Story
             </Button>
@@ -614,56 +627,44 @@ export default function ReviewPage() {
          </div>
       </div>
 
-      {/* Right Panel */}
-      <div className="flex-1 p-6 bg-gray-100 overflow-auto">
+      {/* Right Panel - Allow scrolling */}
+      <div className="flex-1 md:flex-[0_0_45%] lg:flex-[0_0_40%] p-4 md:p-6 bg-gray-100 overflow-y-auto">
         <h2 className="text-xl font-semibold mb-4">
           Review Pages ({pages.length} total)
         </h2>
         <div className="space-y-2 mb-6">
-          {pages.map((page: PageData & { isTitlePage?: boolean }, idx: number) => {
-            // Display "Title" or "Pg X"
-            const pageLabel = page.isTitlePage ? "Title Page" : `Page ${page.pageNumber}`;
-            const snippet = isLoadingText && !page.isTitlePage // Don't show generating for title
-              ? '(Generating...)'
-              : page.text ?? '(No text yet)';
-            
-            const isCurrent = idx === currentIndex;
-            const isPageConfirmed = confirmed[idx];
+          {pages.map((page, index) => {
+              // Determine label and text based on index
+              const isTitle = index === 0;
+              const pageLabel = isTitle ? "Title Page" : `Page ${index}`; // Story pages are index 1, 2, ... visually
+              const snippet = isTitle ? (bookDetails?.title ?? '(No Title Set)') : (isLoadingText ? '(Generating...)' : page.text ?? '(No text yet)');
+              const isCurrent = index === currentIndex;
+              const isPageConfirmed = confirmed[index];
 
-            return (
-              // Use standard Button for list items again
-              <Button
-                key={page.assetId || idx}
-                variant={isCurrent ? 'default' : 'outline'}
-                size="sm"
-                className={
-                  cn(
-                    // Base styles
+              return (
+                <Button
+                  key={page.id || index} // Use index as fallback key
+                  variant={isCurrent ? 'default' : 'outline'}
+                  size="sm"
+                  className={cn(
                     `w-full flex items-start text-left p-3 rounded-lg h-auto min-h-[5rem] whitespace-normal`,
-                    // Conditional hover based on selection
                     !isCurrent && 'hover:bg-accent',
-                    // Apply green style if confirmed (including title page)
+                    // Apply green style if confirmed (always true for title)
                     isPageConfirmed ? 'bg-green-50 border-2 border-green-500 text-green-700 hover:bg-green-100' : '' 
-                  )
-                }
-                onClick={() => setCurrentIndex(idx)}
-                disabled={isWorking || isStartingIllustration}
-              >
-                {/* Flex container for two columns */}
-                <div className="flex w-full items-start space-x-3"> 
-                  {/* Column 1: Page Label (Minimal Width) */}
-                  <div className="flex-shrink-0 font-medium w-20"> {/* Adjust width as needed */} 
-                    {pageLabel}:
+                  )}
+                  onClick={() => setCurrentIndex(index)} // Set current index based on full array
+                  disabled={isWorking || isStartingIllustration}
+                >
+                  <div className="flex w-full items-start space-x-3"> 
+                    <div className="flex-shrink-0 font-medium w-20">{pageLabel}:</div>
+                    <div className="flex-grow min-w-0"> 
+                      <span className="text-muted-foreground line-clamp-2">{snippet}</span>
+                    </div>
                   </div>
-                  {/* Column 2: Text Snippet (Takes remaining space) */}
-                  <div className="flex-grow min-w-0"> {/* min-w-0 allows line-clamp to work */} 
-                    <span className="text-muted-foreground line-clamp-2">{snippet}</span>
-                  </div>
-                </div>
-                {/* Confirmation Checkmark (Positioned separately if needed, or keep at end) */}
-                {isPageConfirmed && <span className="text-green-600 flex-shrink-0 ml-2">✓</span>} 
-              </Button>
-            );
+                  {/* Show checkmark if confirmed */}
+                  {isPageConfirmed && <span className="text-green-600 flex-shrink-0 ml-2">✓</span>} 
+                </Button>
+              );
           })}
         </div>
       </div>
