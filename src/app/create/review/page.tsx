@@ -13,6 +13,11 @@ import { cn } from '@/lib/utils';
 import RoughButton from "@/components/ui/rough-button";
 import RoughBorder from "@/components/ui/rough-border";
 
+// Import the new components
+import PageTracker from '@/components/create/review/PageTracker';
+import PageCard from '@/components/create/review/PageCard';
+import NavigationControls from '@/components/create/review/NavigationControls';
+
 // Define PageData with necessary fields from BookData context or fetched data
 type PageData = {
   id: string | undefined; // Allow ID to be undefined initially
@@ -22,6 +27,8 @@ type PageData = {
   pageNumber: number; // Added pageNumber field
   generatedImageUrl?: string | null; // Populated after illustration
   isTitlePage?: boolean; // Add a flag for easy identification
+  moderationStatus?: string;
+  moderationReason?: string | null;
 };
 
 type FullBookData = Book & { pages: Page[] }; // Type for the full fetched book
@@ -116,6 +123,8 @@ export default function ReviewPage() {
               generatedImageUrl: p.generatedImageUrl,
               isTitlePage: p.isTitlePage || (p.index === 0),
               pageNumber: p.pageNumber,
+              moderationStatus: p.moderationStatus,
+              moderationReason: p.moderationReason
             }));
             console.log("Review Page: Successfully mapped pages:", mappedPages); // Log after successful map
             setPages(mappedPages);
@@ -205,6 +214,8 @@ export default function ReviewPage() {
                           pageNumber: p.pageNumber,
                           generatedImageUrl: p.generatedImageUrl || null,
                           isTitlePage: p.isTitlePage || false,
+                          moderationStatus: p.moderationStatus,
+                          moderationReason: p.moderationReason
                       }));
                       console.log("Review Page: Updating pages state with fetched text:", updatedPageData);
                       setPages(updatedPageData);
@@ -354,6 +365,30 @@ export default function ReviewPage() {
   const goPrev = () => setCurrentIndex(i => Math.max(i - 1, 0));
   const goNext = () => setCurrentIndex(i => Math.min(i + 1, pages.length - 1));
 
+  // Handle text updates
+  const handleTextChange = (newText: string) => {
+    if (currentIndex === 0) {
+      // Handle title page text change
+      setPendingTitleReview(newText);
+    } else {
+      // Handle regular page text change
+      setPages(prev => {
+        const copy = [...prev];
+        if (copy[currentIndex]) {
+          copy[currentIndex] = { ...copy[currentIndex], text: newText };
+        }
+        return copy;
+      });
+    }
+    
+    // Mark as unconfirmed when text changes
+    setConfirmed(prev => {
+      const copy = [...prev];
+      copy[currentIndex] = false;
+      return copy;
+    });
+  };
+
   // Toggle confirmation per page / title
   const toggleConfirm = async () => {
     const currentPage = pages[currentIndex];
@@ -365,16 +400,8 @@ export default function ReviewPage() {
         return; 
     }
     
-    const currentlyConfirmed = confirmed[currentIndex];
-
-    // If already confirmed, mark as unconfirmed locally (no API call needed to unconfirm)
-    if (currentlyConfirmed) {
-      setConfirmed(arr => {
-        const copy = [...arr];
-        copy[currentIndex] = false;
-        return copy;
-      });
-      toast.info(currentIndex === 0 ? "Title page marked as unconfirmed." : `Page ${currentIndex} marked as unconfirmed.`);
+    // Skip if already confirmed
+    if (confirmed[currentIndex]) {
       return;
     }
     
@@ -406,9 +433,6 @@ export default function ReviewPage() {
       // Update main state *after* successful save
       if (currentIndex === 0) {
           setBookDetails(prev => prev ? { ...prev, title: pendingTitleReview } : null);
-      } else {
-          // Optionally update pages state if API returned updated page, but text is already set locally
-          // setPages(prev => ...);
       }
       
       // Mark as confirmed locally
@@ -418,6 +442,11 @@ export default function ReviewPage() {
         return copy;
       });
       toast.success(currentIndex === 0 ? "Title page saved and confirmed!" : `Page ${currentIndex} saved and confirmed!`);
+
+      // Auto-advance to next page after confirmation if not on last page
+      if (currentIndex < pages.length - 1) {
+        goNext();
+      }
 
     } catch (error) {
       console.error("Error saving page/title:", error);
@@ -498,11 +527,12 @@ export default function ReviewPage() {
   }, [/* Add goPrev, goNext if needed */]); 
 
   const allConfirmed = pages.length > 0 && confirmed.every(c => c);
+  const confirmedCount = confirmed.filter(Boolean).length;
   const isWorking = isLoadingText || isSavingPage || isStartingIllustration || isAwaitingFinalStatus || isFetchingInitialData;
 
   // Handle loading/redirect state before rendering main UI
   if (isFetchingInitialData) {
-      return <div className="p-6 flex justify-center items-center h-full"><Loader2 className="h-8 w-8 animate-spin mr-2" /> Loading review data...</div>;
+      return <div className="p-6 flex justify-center items-center h-screen"><Loader2 className="h-8 w-8 animate-spin mr-2" /> Loading review data...</div>;
   }
   if (pages.length === 0 && !isFetchingInitialData) {
       return <div className="p-6 text-red-600">Error: Could not load pages for review. Please go back and try again.</div>;
@@ -511,7 +541,7 @@ export default function ReviewPage() {
   // Add rendering for Awaiting Final Status
   if (isAwaitingFinalStatus) {
        return (
-         <div className="p-6 flex flex-col justify-center items-center h-full text-center">
+         <div className="p-6 flex flex-col justify-center items-center h-screen text-center">
               <Loader2 className="h-8 w-8 animate-spin mr-2 mb-4 text-primary" />
               <h2 className="text-xl font-semibold mb-2">Illustrations In Progress...</h2>
               <p className="text-muted-foreground mb-4">Your book is being illustrated. We'll redirect you when it's ready.</p>
@@ -523,151 +553,48 @@ export default function ReviewPage() {
   const currentPageData = pages[currentIndex];
   const isTitlePageSelected = currentIndex === 0 && pages.length > 0; // Simpler check
 
-  // Main Render
+  // Main Render - New Mobile-Optimized Layout
   return (
-    <div className="flex flex-col md:flex-row h-[calc(100vh-var(--site-header-height))] w-full">
-      {/* Left Panel */}
-      <div className="flex-1 md:flex-[0_0_55%] lg:flex-[0_0_60%] p-4 md:p-6 bg-white flex flex-col items-center overflow-y-auto">
-        {/* Image Display - Reduced Size */} 
-        <div className="w-full flex justify-center mb-4 flex-shrink-0">
-          <div className="relative w-full max-w-[300px] md:max-w-[400px] overflow-hidden rounded-lg shadow bg-muted aspect-square">
-            {/* Show Original Image URL from Page data */}
-            {currentPageData?.originalImageUrl ? (
-              <Image
-                src={currentPageData.originalImageUrl}
-                alt={isTitlePageSelected ? `Title Page Original Photo` : `Page ${currentIndex} Original Photo`}
-                fill
-                className="object-contain"
-                priority={currentIndex < 2}
-              />
-            ) : (
-              <div className="w-full h-full flex items-center justify-center">
-                   <span className="text-2xl font-semibold text-muted-foreground">
-                     {isTitlePageSelected ? 'Title Page' : `Page ${currentIndex}`}
-                   </span>
-              </div>
-            )}
-          </div>
-        </div>
-        
-        {/* Text Area - Allow flex-grow */}
-        {isLoadingText && !isTitlePageSelected ? (
-          <div className="w-full h-40 mb-4 rounded-md border border-input bg-background px-3 py-2 flex items-center justify-center">
-            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground mr-2" />
-            <span className="text-muted-foreground">Generating story text...</span>
-          </div>
-        ) : (
-          <Textarea
-            className="w-full mb-4 text-base md:text-lg lg:text-xl text-center p-4 resize-none flex-grow min-h-[100px]"
-            value={isTitlePageSelected ? pendingTitleReview : (currentPageData?.text ?? '')}
-            readOnly={isWorking || isStartingIllustration || isTitlePageSelected}
-            onChange={(e) => {
-              const newText = e.target.value;
-              if (isTitlePageSelected) {
-                setPendingTitleReview(newText); // Update pending title
-              } else {
-                setPages(prev => {
-                  const copy = [...prev];
-                  if (copy[currentIndex]) {
-                    copy[currentIndex] = { ...copy[currentIndex], text: newText };
-                  }
-                  return copy;
-                });
-              }
-              // Mark current item as unconfirmed on any edit
-              setConfirmed(prev => {
-                const copy = [...prev];
-                if (copy[currentIndex] !== undefined) {
-                   copy[currentIndex] = false; 
-                }
-                return copy;
-              });
-            }}
-          />
-        )}
-        
-        {/* Navigation and Confirm Row - Add flex-shrink-0 */}
-        <div className="flex justify-between items-center w-full mb-4 flex-shrink-0">
-          <div className="flex space-x-2">
-            <Button onClick={goPrev} disabled={currentIndex === 0 || isWorking || isStartingIllustration}>Previous</Button>
-            <Button onClick={goNext} disabled={currentIndex === pages.length - 1 || isWorking || isStartingIllustration}>Next</Button>
-          </div>
-          <div>
-            <Button
-              variant={confirmed[currentIndex] ? 'default' : 'outline'}
-              onClick={toggleConfirm}
-              disabled={isWorking || isStartingIllustration || !currentPageData}
-            >
-              {isSavingPage ? (
-                <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Saving...</>
-              ) : confirmed[currentIndex] ? (
-                 'Page Confirmed'
-              ) : (
-                'Confirm Page'
-              )}
-            </Button>
-          </div>
-        </div>
-         {/* Bottom Buttons Row - Add flex-shrink-0 */} 
-         <div className="flex justify-between items-center w-full mt-auto pt-4 border-t flex-shrink-0">
-            <Button variant="ghost" onClick={handleRegenerate} disabled={isWorking}>
-              Regenerate Story
-            </Button>
-            <Button
-              onClick={handleIllustrate}
-              disabled={!allConfirmed || isWorking}
-              size="lg"
-            >
-              {isStartingIllustration ? (
-                 <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Starting...</>
-              ) : (
-                 'Illustrate My Book'
-              )}
-            </Button>
-         </div>
+    <div className="flex flex-col h-screen">
+      {/* Progress Tracker at Top */}
+      <PageTracker 
+        totalPages={pages.length} 
+        currentPage={currentIndex} 
+        confirmedPages={confirmedCount} 
+        onPageSelect={setCurrentIndex} 
+        allPagesConfirmed={allConfirmed}
+        isProcessing={isWorking}
+        onIllustrate={handleIllustrate}
+      />
+      
+      {/* Main Content Area - Shows One Page at a Time */}
+      <div className="flex-1 overflow-y-auto p-4">
+        <PageCard 
+          id={currentPageData?.id}
+          imageUrl={currentPageData?.generatedImageUrl || currentPageData?.originalImageUrl}
+          text={isTitlePageSelected ? pendingTitleReview : currentPageData?.text}
+          pageNumber={currentPageData?.pageNumber || currentIndex}
+          isTitlePage={isTitlePageSelected}
+          isConfirmed={confirmed[currentIndex]}
+          moderationStatus={currentPageData?.moderationStatus}
+          moderationReason={currentPageData?.moderationReason}
+          isSaving={isSavingPage}
+          bookId={bookIdFromUrl || ''}
+          onTextChange={handleTextChange}
+          onConfirm={toggleConfirm}
+        />
       </div>
-
-      {/* Right Panel - Allow scrolling */}
-      <div className="flex-1 md:flex-[0_0_45%] lg:flex-[0_0_40%] p-4 md:p-6 bg-gray-100 overflow-y-auto">
-        <h2 className="text-xl font-semibold mb-4">
-          Review Pages ({pages.length} total)
-        </h2>
-        <div className="space-y-2 mb-6">
-          {pages.map((page, index) => {
-              // Determine label and text based on index
-              const isTitle = index === 0;
-              const pageLabel = isTitle ? "Title Page" : `Page ${index}`; // Story pages are index 1, 2, ... visually
-              const snippet = isTitle ? (bookDetails?.title ?? '(No Title Set)') : (isLoadingText ? '(Generating...)' : page.text ?? '(No text yet)');
-              const isCurrent = index === currentIndex;
-              const isPageConfirmed = confirmed[index];
-
-              return (
-                <Button
-                  key={page.id || index} // Use index as fallback key
-                  variant={isCurrent ? 'default' : 'outline'}
-                  size="sm"
-                  className={cn(
-                    `w-full flex items-start text-left p-3 rounded-lg h-auto min-h-[5rem] whitespace-normal`,
-                    !isCurrent && 'hover:bg-accent',
-                    // Apply green style if confirmed (always true for title)
-                    isPageConfirmed ? 'bg-green-50 border-2 border-green-500 text-green-700 hover:bg-green-100' : '' 
-                  )}
-                  onClick={() => setCurrentIndex(index)} // Set current index based on full array
-                  disabled={isWorking || isStartingIllustration}
-                >
-                  <div className="flex w-full items-start space-x-3"> 
-                    <div className="flex-shrink-0 font-medium w-20">{pageLabel}:</div>
-                    <div className="flex-grow min-w-0"> 
-                      <span className="text-muted-foreground line-clamp-2">{snippet}</span>
-                    </div>
-                  </div>
-                  {/* Show checkmark if confirmed */}
-                  {isPageConfirmed && <span className="text-green-600 flex-shrink-0 ml-2">✓</span>} 
-                </Button>
-              );
-          })}
-        </div>
-      </div>
+      
+      {/* Bottom Navigation */}
+      <NavigationControls 
+        currentPage={currentIndex}
+        totalPages={pages.length}
+        canGoNext={currentIndex < pages.length - 1 && !isWorking}
+        canGoPrevious={currentIndex > 0 && !isWorking}
+        isProcessing={isWorking}
+        onPrevious={goPrev}
+        onNext={goNext}
+      />
     </div>
   );
 }

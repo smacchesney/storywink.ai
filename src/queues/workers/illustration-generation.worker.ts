@@ -184,10 +184,10 @@ async function processIllustrationGenerationJob(job: Job<IllustrationGenerationJ
 
         // Moderation checks (remain similar, adapt as needed)
         if (result?.data?.[0]?.revised_prompt && result.data[0].revised_prompt !== textPrompt) {
-            logger.warn({ jobId: job.id, pageId, pageNumber, originalLength: textPrompt.length, revisedLength: result.data[0].revised_prompt.length }, 'OpenAI revised the prompt (check details in full logs if needed).');
+            logger.warn({ jobId: job.id, pageId, pageNumber, originalLength: textPrompt.length, revisedLength: result.data[0].revised_prompt?.length }, 'OpenAI revised the prompt (check details in full logs if needed).');
         }
 
-        const b64ImageData = result.data[0]?.b64_json;
+        const b64ImageData = result?.data?.[0]?.b64_json;
         if (b64ImageData) {
             generatedImageBase64 = b64ImageData;
             logger.info({ jobId: job.id, pageId, pageNumber }, 'Extracted generated image data (b64_json).');

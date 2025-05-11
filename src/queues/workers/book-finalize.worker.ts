@@ -39,6 +39,14 @@ async function processFinalizeBookJob(job: Job<BookFinalizeJobData>) {
         return { status: BookStatus.FAILED, reason: 'No pages found' };
     }
 
+    // For enhanced debugging:
+    const pageStatusesSummary = pages.reduce((acc, page) => {
+      const statusKey = `${page.moderationStatus || 'UNKNOWN'}${page.generatedImageUrl ? '_WITH_IMAGE' : '_NO_IMAGE'}`;
+      acc[statusKey] = (acc[statusKey] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+    logger.info({ jobId: job.id, bookId, pageStatusesSummary, totalPages: pages.length }, 'Page statuses snapshot for finalization.');
+
     // 2. Determine final book status
     const totalPageCount = pages.length;
     // Count only pages that are OK and have an image URL

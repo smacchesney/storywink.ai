@@ -1,13 +1,20 @@
+'use client';
+
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { SignedIn, SignedOut, UserButton } from "@clerk/nextjs";
 import Image from "next/image";
+import { MenuIcon } from "lucide-react";
+import { useState } from "react";
 
 export function SiteHeader() {
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border/40 bg-[#FFFFFF] dark:bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      <div className="container flex h-14 items-center px-6 md:px-8">
+      <div className="container flex h-14 items-center px-6 md:px-8 justify-between">
+        {/* Desktop Logo and Nav */}
         <div className="hidden md:flex items-center">
           <Link href="/" className="mr-6 flex items-center space-x-2">
             <Image
@@ -27,12 +34,27 @@ export function SiteHeader() {
              {/* Add other links as needed */}
           {/* </nav> */}
         </div>
-        {/* Mobile Nav Placeholder */}
-        {/* <Button variant="ghost" className="mr-2 px-0 text-base hover:bg-transparent focus-visible:bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0 md:hidden">...</Button> */}
+
+        {/* Mobile Logo */}
+        <div className="flex items-center md:hidden">
+          <Link href="/" className="flex items-center space-x-2">
+            <Image
+              src="/images/mascot/Winky the TREX.png"
+              alt="Storywink Mascot"
+              width={32}
+              height={32}
+              className="h-8 w-8"
+            />
+            <span className="font-bold text-2xl sm:inline-block text-slate-900 dark:text-white">
+              Storywin<span className="text-[#F76C5E]">k.ai</span>
+            </span>
+          </Link>
+        </div>
         
-        <div className="flex flex-1 items-center justify-end space-x-4">
-          <nav className="flex items-center space-x-2">
-             {/* Use Clerk components for conditional rendering */}
+        {/* Right side content (Auth buttons and Mobile Menu Trigger) */}
+        <div className="flex items-center space-x-2">
+          {/* Auth buttons - visible on desktop screens */}
+          <nav className="hidden md:flex items-center space-x-2">
              <SignedOut>
                 <Button asChild variant="ghost">
                   <Link href="/sign-in">Sign In</Link>
@@ -53,8 +75,47 @@ export function SiteHeader() {
                  <UserButton afterSignOutUrl="/" />
              </SignedIn>
           </nav>
+
+          {/* Mobile Menu Trigger - only on small screens */}
+          <div className="md:hidden">
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Open menu"
+              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+            >
+              <MenuIcon className="h-6 w-6" />
+            </Button>
+          </div>
         </div>
       </div>
+      {/* Mobile Menu (dropdown) */}
+      {isMobileMenuOpen && (
+        <div className="absolute top-14 left-0 right-0 z-40 bg-white dark:bg-background shadow-md md:hidden">
+          <nav className="container flex flex-col space-y-2 p-4">
+            <SignedIn>
+              <Link
+                href="/library"
+                className="text-slate-900 dark:text-white transition-colors hover:text-slate-700 dark:hover:text-slate-300 py-2"
+                onClick={() => setIsMobileMenuOpen(false)}
+              >
+                My Library
+              </Link>
+              <div className="py-2">
+                <UserButton afterSignOutUrl="/" />
+              </div>
+            </SignedIn>
+            <SignedOut>
+              <Button asChild variant="ghost" onClick={() => setIsMobileMenuOpen(false)}>
+                <Link href="/sign-in">Sign In</Link>
+              </Button>
+              <Button asChild onClick={() => setIsMobileMenuOpen(false)}>
+                <Link href="/sign-up">Sign Up</Link>
+              </Button>
+            </SignedOut>
+          </nav>
+        </div>
+      )}
     </header>
   );
 } 

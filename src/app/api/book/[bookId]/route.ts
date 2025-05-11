@@ -15,9 +15,11 @@ const updateBookSchema = z.object({
   coverAssetId: z.string().cuid().nullable().optional(), // For cover changes
 }).strict(); // Ensure no extra fields are passed
 
+type RouteContext = { params: Promise<{ bookId: string }> };
+
 export async function GET(
-  request: Request,
-  { params }: { params: Promise<{ bookId: string }> }
+  req: NextRequest, // Changed from request: Request
+  { params }: RouteContext // Applied RouteContext
 ) {
   const { bookId } = await params;
 
@@ -75,7 +77,7 @@ export async function GET(
 
 export async function PATCH(
   req: NextRequest, // Use NextRequest to easily get JSON body
-  { params }: { params: { bookId: string } } // Destructure bookId
+  { params }: RouteContext // Applied RouteContext
 ) {
   const { userId } = await auth();
   const { bookId } = await params;

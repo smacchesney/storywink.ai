@@ -13,6 +13,9 @@ const compat = new FlatCompat({
 });
 
 const eslintConfig = [
+  {
+    ignores: ["src/generated/**"], // Ignore everything within src/generated
+  },
   // Apply TS config FIRST
   ...tseslint.configs.recommended, // Apply recommended TS rules
   // Then apply Next.js and Prettier overrides
@@ -46,6 +49,11 @@ const eslintConfig = [
     rules: {
       // Your custom rule overrides/additions go here
       "react/no-unescaped-entities": "warn", // Keep this downgraded
+      "@typescript-eslint/no-unused-expressions": "warn",
+      "@typescript-eslint/no-unused-vars": ["warn", { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_" }],
+      "@typescript-eslint/no-this-alias": "warn",
+      "@typescript-eslint/no-require-imports": "warn",
+      "@typescript-eslint/no-explicit-any": "warn",
       // Example: If you specifically need to allow require in some places
       // '@typescript-eslint/no-var-requires': 'off',
       // Or configure specific import rules

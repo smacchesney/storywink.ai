@@ -1,0 +1,100 @@
+# Expert-Level Mobile Web App UI Design Rubric
+
+Each category is evaluated on a six‑point **A–F scale**.  
+A = Outstanding / Industry‑leading, F = Unacceptable / Fails basic standards.
+
+---
+
+## 1. Information Architecture & Navigation
+| Grade | Criteria |
+|-------|----------|
+| **A** | Content is logically grouped into clear, intuitive sections; users reach any primary task in ≤2 taps; global navigation is consistent and responsive; deep links supported. |
+| **B** | Overall structure is sound with minor redundancy; primary tasks in ≤3 taps; breadcrumbs or other orientation cues present but could be clearer. |
+| **C** | Navigation works but contains occasional dead ends or duplicate paths; some important tasks take 4+ taps; labelling occasionally ambiguous. |
+| **D** | Disorganized hierarchy; users frequently back‑track; hidden screens; inconsistent labelling. |
+| **E** | Navigation breaks on smaller viewports; critical tasks buried or missing; no orientation cues. |
+| **F** | Users cannot find or reach core features; broken links; unusable menu. |
+
+---
+
+## 2. Visual Hierarchy & Layout
+| Grade | Criteria |
+|-------|----------|
+| **A** | Clear focal points per screen, consistent spacing & grid; “thumb‑friendly” tap targets; fluid layout adapts elegantly to all mobile breakpoints. |
+| **B** | Strong hierarchy with few crowding issues; grid mostly consistent; minor alignment issues on uncommon devices. |
+| **C** | Acceptable hierarchy but clutter on busy screens; inconsistent spacing; some non‑responsive elements. |
+| **D** | Competing focal points; cramped tap targets; breakpoints cause overlaps. |
+| **E** | Visual chaos; no discernible grid; frequent horizontal scrolling. |
+| **F** | Layout collapses; content unreadable or inaccessible on mobile. |
+
+---
+
+## 3. Typography & Readability
+| Grade | Criteria |
+|-------|----------|
+| **A** | Font choices reinforce brand, are web‑safe & performant; line‑length, leading and contrast optimized for mobile; dynamic type supported. |
+| **B** | Readable across environments; minor contrast or scaling issues in extreme conditions. |
+| **C** | Generally legible but inconsistent font weights or sizes; paragraph spacing awkward. |
+| **D** | Small fonts (<12 pt); poor contrast on some backgrounds; no fall‑backs. |
+| **E** | Text frequently truncated or overlaps; custom fonts not loaded efficiently. |
+| **F** | Text unreadable; accessibility violations (WCAG AA < 4.5:1). |
+
+---
+
+## 4. Color & Theming
+| Grade | Criteria |
+|-------|----------|
+| **A** | Palette supports brand and usability; systematic use of semantic colors; dark‑ & light‑mode fully implemented; passes WCAG AAA for text. |
+| **B** | Cohesive palette; dark‑mode present but minor contrast issues; limited semantic use. |
+| **C** | Brand colors applied but functional colors (error, success) inconsistent; no dark‑mode. |
+| **D** | Color clashes; insufficient contrast in places; over‑reliance on color to convey state. |
+| **E** | Random or excessive color use; pervasive contrast failures. |
+| **F** | Color scheme prevents interaction (e.g., hidden buttons); inaccessible. |
+
+---
+
+## 5. Interaction Design & Feedback
+| Grade | Criteria |
+|-------|----------|
+| **A** | Micro‑interactions guide users without delay; gestures follow platform conventions; real‑time state feedback (loading, success, error); haptics & subtle motion used appropriately. |
+| **B** | Clear feedback on most actions; gestures mostly intuitive; occasional latency. |
+| **C** | Basic feedback (toasts, loaders) present but inconsistent; some non‑standard gestures. |
+| **D** | Limited or confusing feedback; no undo for destructive actions. |
+| **E** | Actions processed without any visible feedback; users unsure if task completed. |
+| **F** | Inputs fail silently or trigger wrong result; app feels unresponsive. |
+
+---
+
+## 6. Accessibility & Inclusivity
+| Grade | Criteria |
+|-------|----------|
+| **A** | Exceeds WCAG 2.2 AA on all screens; full screen‑reader support; logical tab order; motion alternatives; localisation & RTL support. |
+| **B** | Meets WCAG 2.1 AA; screen‑reader labels present; minor focus order issues. |
+| **C** | Passes most accessibility audits but significant gaps (e.g., form labels). |
+| **D** | Multiple violations; no alt text; fixed orientation. |
+| **E** | Accessibility considered an afterthought; fails basic audits; non‑inclusive language. |
+| **F** | Excludes users with disabilities entirely. |
+
+---
+
+## 7. Performance & Responsiveness
+| Grade | Criteria |
+|-------|----------|
+| **A** | First Contentful Paint <1 s on 4G; <100 kB critical path; optimised images; uses lazy‑loading; offline‑first PWA support. |
+| **B** | FCP <2 s; minor unused JavaScript; images compressed. |
+| **C** | Noticeable jank on scroll; large bundle size but tolerable; no offline support. |
+| **D** | Slow (FCP >4 s); unoptimised assets; blocking scripts. |
+| **E** | Frequent stutters & crashes; excessive memory use. |
+| **F** | App unusable; timeouts or out‑of‑memory on typical mobile hardware. |
+
+---
+
+## 8. Consistency & Branding
+| Grade | Criteria |
+|-------|----------|
+| **A** | Component library enforced; iconography, motion, tone align with brand across all screens; platform conventions balanced with brand personality. |
+| **B** | Mostly consistent but some legacy screens off‑brand; minor style drift. |
+| **C** | Inconsistent icon sets or tone; mix of old & new components. |
+| **D** | Branding superficial; no shared component styles; copy voice inconsistent. |
+| **E** | Conflicting visual identities; user confusion over legitimacy. |
+| **F** | No discernible brand; random styles each screen. |

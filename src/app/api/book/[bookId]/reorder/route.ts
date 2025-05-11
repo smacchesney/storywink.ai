@@ -16,9 +16,11 @@ const reorderRequestSchema = z.object({
   pages: z.array(pageOrderSchema).min(1, { message: 'At least one page required for reordering.' }),
 });
 
+type Context = { params: Promise<{ bookId: string }> };
+
 export async function POST(
   req: NextRequest,
-  { params }: { params: { bookId: string } }
+  { params }: Context
 ) {
   const { userId } = await auth();
   const { bookId } = await params;
@@ -72,7 +74,7 @@ export async function POST(
           data: {
             index: page.index,
             // Optionally update pageNumber as well if needed
-            // pageNumber: page.index + 1, 
+            pageNumber: page.index + 1, 
           },
         })
       );

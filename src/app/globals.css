@@ -137,3 +137,19 @@
     font-family: 'Excalifont'; 
   }
 }
+
+/* Hide scrollbar but keep functionality */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-x: hidden;
+  scrollbar-width: none;
+}
+
+/* Mobile adjustments for review page */
+@media (max-width: 768px) {
+  .h-screen {
+    height: calc(100vh - var(--site-header-height, 64px));
+  }
+}

@@ -1,0 +1,331 @@
+Okay, this is a great vision! Focusing on a mobile-first, intuitive experience for busy parents is key. Let's craft that PRD.
+
+Based on your input and my understanding of the codebase:
+
+<context>
+
+# Overview
+Storywink.ai transforms cherished photo memories into personalized, beautifully illustrated AI-generated storybooks. It solves the problem of parents wanting to create unique and engaging stories for their young children (ages 2-5) but lacking the time or creative tools. The core value lies in its ability to quickly and easily generate highly personal keepsakes from everyday photos—capturing holidays, day trips, or even bringing favorite toys to life in a story. The mobile-first approach caters to where parents often store and access their photos, making the creation process seamless and accessible on-the-go.
+
+# Core Features
+
+1.  **Photo Upload & Book Draft Creation:**
+    *   **What it does:** Allows users to upload photos from their mobile devices (or desktop). The system then creates an initial book structure (`Book` record) and individual `Page` records, associating each uploaded photo (`Asset`) as the original image for a page.
+    *   **Why it's important:** This is the foundational step. Easy photo upload is critical for mobile users. Automatic draft creation speeds up the process.
+    *   **How it works:**
+        *   Frontend (`/create/page.tsx`) uses `FileUploader` and `PhotoSourceSheet` for photo selection.
+        *   Photos are sent to `/api/upload` which uploads them to Cloudinary and creates `Asset` records in the database.
+        *   `/api/book/create` is then called with asset IDs to create `Book` and `Page` entries with initial ordering and `originalImageUrl` populated.
+
+2.  **Storybook Editor (Cover, Pages, Art Style):**
+    *   **What it does:** Provides an interface (`/create/[bookId]/edit/page.tsx`) for users to:
+        *   Set the book's title and the child's name.
+        *   Choose a cover image from the uploaded assets.
+        *   Reorder pages.
+        *   Select an art style for illustrations and enable/disable "Winkify" (dynamic illustration notes).
+    *   **Why it's important:** Personalization and creative control are key to making the storybook special. A mobile-friendly editor is crucial.
+    *   **How it works:**
+        *   The editor fetches book data via `/api/book/[bookId]`.
+        *   `CoverEditorPanel` allows title, name, and cover asset changes (saved via `PATCH /api/book/[bookId]`).
+        *   `StoryboardGrid` allows drag-and-drop page reordering (saved via `POST /api/book/[bookId]/reorder`).
+        *   `ArtStylePicker` allows art style and Winkify selection (saved via `PATCH /api/book/[bookId]`).
+        *   `Canvas` component displays the current selected page/cover.
+        *   `BottomToolbar` provides navigation between editor tabs.
+
+3.  **AI Story Generation & Review:**
+    *   **What it does:**
+        *   Generates story text for each page based on uploaded photos, book title, child's name, and selected art style (if it influences text).
+        *   Provides an interface (`/create/review/page.tsx`) for users to review, edit, and confirm the generated text for each page.
+    *   **Why it's important:** The AI-generated text provides a quick start, while the review step ensures parental satisfaction and personalization.
+    *   **How it works:**
+        *   Triggered from the editor, calls `POST /api/generate/story`.
+        *   A BullMQ worker (`story-generation.worker.ts`) uses OpenAI (GPT-4o) with prompts from `src/lib/openai/prompts.ts` to generate text for all non-cover pages.
+        *   The review page polls `/api/book-status` and fetches content from `/api/book/[bookId]`.
+        *   Text edits are saved via `PATCH /api/book/[bookId]/page/[pageId]`.
+
+4.  **AI Illustration Generation:**
+    *   **What it does:** Generates illustrations for each page based on the original photo, confirmed text, selected art style, and any "Winkify" notes.
+    *   **Why it's important:** Transforms the photo-based story into a visually unique and appealing illustrated book.
+    *   **How it works:**
+        *   Triggered from the review page (after text confirmation), calls `POST /api/generate/illustrations`.
+        *   A BullMQ flow is created:
+            *   `illustration-generation.worker.ts` (one per page) uses OpenAI Images API (likely edit with two images: original photo + style reference from `src/lib/ai/styleLibrary.ts`). Uploads to Cloudinary, updates `Page.generatedImageUrl`.
+            *   `book-finalize.worker.ts` (parent job) updates the overall `Book.status` to `COMPLETED`, `PARTIAL`, or `FAILED` based on page illustration outcomes.
+
+5.  **Book Preview & Export:**
+    *   **What it does:** Allows users to view the fully illustrated storybook in a flipbook format (`/book/[bookId]/preview/page.tsx`) and export it as a PDF.
+    *   **Why it's important:** The final output and tangible takeaway for the user.
+    *   **How it works:**
+        *   `FlipbookViewer` component displays pages.
+        *   `BookPageGallery` shows page thumbnails.
+        *   PDF export via `GET /api/book/[bookId]/export/pdf` which uses Puppeteer (`src/lib/pdf/generateBookPdf.ts`).
+
+6.  **User Library:**
+    *   **What it does:** Lists all books created by the user, separating "In Progress" and "Completed" books (`/library/page.tsx`). Allows users to view, edit, duplicate, or delete their books.
+    *   **Why it's important:** Provides a central place for users to manage their creations.
+    *   **How it works:**
+        *   Server action `getUserBooks` fetches book data.
+        *   `LibraryClientView` and `BookCard` components render the list.
+        *   Server actions `deleteBook` and `duplicateBook` handle modifications.
+
+# User Experience
+
+*   **User Personas:**
+    *   **Busy Parent (Primary):** Typically (but not exclusively) mothers of young children (ages 2-5). Tech-savvy, uses their smartphone extensively for photos and daily tasks. Values convenience, speed, and creating meaningful, personalized experiences for their children. Short on time, so the process needs to be intuitive and efficient.
+    *   *Goal:* Quickly create a unique, high-quality storybook from their phone during pockets of free time (e.g., commuting, while kids are napping).
+*   **Key User Flows (Mobile-First Focus):**
+    1.  **Create New Storybook:**
+        *   User lands on a simple home page (`/`).
+        *   Taps "Create Your Storybook" -> Navigates to `/create`.
+        *   Presents a clear "Add Photos" interface (`PhotoSourceSheet` for mobile).
+        *   User uploads photos from their device.
+        *   System shows progress (`UploadProgressScreen`) and automatically creates a book draft, then navigates to the editor (`/create/[bookId]/edit`).
+    2.  **Edit Storybook (Mobile Optimized):**
+        *   User lands on `/create/[bookId]/edit`.
+        *   **Cover Tab (Default or Current):**
+            *   View current cover (derived from first uploaded image initially).
+            *   Easily change title & child's name via simple input fields in a bottom sheet/drawer.
+            *   Select a different cover photo from uploaded assets (simple tap-to-select grid in sheet/drawer).
+            *   Save changes.
+        *   **Pages Tab:**
+            *   View reorderable page thumbnails in a bottom sheet/drawer.
+            *   Intuitive drag-and-drop (or tap-to-move for mobile if drag-drop is clunky) for reordering.
+            *   Save changes.
+        *   **Art Style Tab:**
+            *   Visually select an art style from a grid in a bottom sheet/drawer.
+            *   Toggle "Winkify" option.
+            *   Save changes.
+        *   Main canvas area updates to show the selected page/cover.
+        *   User triggers "Generate Story".
+    3.  **Review & Confirm Story Text (Mobile Optimized - **NEW FOCUS**):**
+        *   User lands on `/create/review?bookId=[bookId]`.
+        *   Clear, large display of the current page's original photo (or illustration if re-reviewing after illustration step).
+        *   Large, easily editable textarea for the AI-generated story text.
+        *   Simple "Previous" / "Next" page navigation (touch-friendly buttons).
+        *   A visual list/carousel of page thumbnails (similar to `BookPageGallery` but perhaps vertically scrollable or a compact horizontal scroll for mobile) allowing quick jumps between pages. Each thumbnail should indicate its confirmation status.
+        *   Clear "Confirm Page" button for each page.
+        *   A prominent "Illustrate My Book" CTA, enabled only when all pages are confirmed.
+    4.  **View Completed Storybook (Mobile Optimized):**
+        *   User navigates to `/book/[bookId]/preview` (from library or after illustration).
+        *   `FlipbookViewer` optimized for touch gestures (swipe to turn pages).
+        *   `BookPageGallery` for quick navigation, responsive.
+        *   Easy access to "Export PDF".
+*   **UI/UX Considerations (Mobile-First & Simplicity):**
+    *   **Intuitive Navigation:** Clear, minimal navigation. `BottomToolbar` in the editor is a good pattern. For review, consider similar bottom navigation for Prev/Next/Confirm, or very prominent on-page buttons.
+    *   **Touch-Friendly Targets:** All buttons, input fields, and interactive elements must be easily tappable.
+    *   **Progressive Disclosure:** Show only necessary information and controls for the current step. Panels/sheets/drawers for editing details work well on mobile.
+    *   **Visual Feedback:** Clear loading states (`Loader2`), success messages (toasts), and error messages.
+    *   **Performance:** Fast load times, especially for images. Optimize image delivery (Cloudinary transformations for thumbnails).
+    *   **Simplicity:** Avoid clutter. Each screen should have a clear primary action.
+    *   **Consistency:** Maintain a consistent design language (fonts, colors, button styles) across the creation, editing, and review flows. The "rough" UI elements should be applied consistently if they fit the "children's book" theme and perform well.
+    *   **Forgiveness:** Allow users to easily go back, edit, and correct mistakes.
+    *   **Delight:** Incorporate subtle animations and a playful tone (e.g., "Winky the TREX" mascot) to enhance the experience.
+
+</context>
+<PRD>
+
+# Technical Architecture
+
+*   **System Components:**
+    *   **Frontend:** Next.js (App Router), React, Tailwind CSS, shadcn/ui components, `react-pageflip` for preview, `dnd-kit` for reordering, `embla-carousel` for canvas.
+    *   **Backend:** Next.js API Routes and Server Actions.
+    *   **Database:** PostgreSQL, managed with Prisma ORM.
+    *   **Authentication:** Clerk.
+    *   **Image Storage & Delivery:** Cloudinary.
+    *   **AI Services:**
+        *   Text Generation: OpenAI GPT-4o (or similar).
+        *   Image Generation: OpenAI DALL-E / Images API (specifically image editing with style reference).
+    *   **Task Queues:** BullMQ with Redis for background processing of story and illustration generation.
+    *   **Logging:** Pino (via `src/lib/logger.ts`).
+    *   **PDF Generation:** Puppeteer.
+*   **Data Models (Prisma Schema Summary - `prisma/schema.prisma`):**
+    *   `User`: Stores user data, links to Clerk ID.
+    *   `Book`: Core entity for a storybook. Fields include `title`, `childName`, `status` (enum: `DRAFT`, `GENERATING`, `ILLUSTRATING`, `COMPLETED`, `FAILED`, `PARTIAL`), `pageLength`, `artStyle`, `coverAssetId`, `isWinkifyEnabled`, token counts, timestamps, and `userId`.
+    *   `Page`: Represents individual pages. Fields include `bookId`, `pageNumber`, `index` (for ordering), `assetId` (original photo), `originalImageUrl`, `generatedImageUrl`, `text`, `textConfirmed`, `illustrationNotes`, `isTitlePage`, `pageType` (enum: `SINGLE`, `SPREAD`), `moderationStatus`.
+    *   `Asset`: Stores uploaded image metadata from Cloudinary (URL, publicId, thumbnailURL, etc.) and links to `User`.
+    *   `UserProfile`: Optional additional user details.
+*   **APIs and Integrations:**
+    *   **Internal APIs (Next.js API Routes):**
+        *   `/api/upload`: Handles file uploads to Cloudinary and `Asset` creation.
+        *   `/api/book/create`: Creates `Book` and `Page` records.
+        *   `/api/book/[bookId]`: `GET` (fetch book details with pages), `PATCH` (update book details like title, art style, cover).
+        *   `/api/book/[bookId]/page/[pageId]`: `PATCH` (update page text).
+        *   `/api/book/[bookId]/reorder`: `POST` (update page order/indices).
+        *   `/api/book-status`: `GET` (poll for book generation/illustration status).
+        *   `/api/generate/story`: Triggers story generation worker.
+        *   `/api/generate/illustrations`: Triggers illustration generation flow.
+        *   `/api/book/[bookId]/export/pdf`: Generates and serves PDF.
+        *   `/api/webhooks/clerk`: Handles user sync from Clerk.
+        *   `/api/health`: Basic health check.
+    *   **External APIs:**
+        *   Clerk: Authentication and user management.
+        *   Cloudinary: Image storage, transformation, and delivery.
+        *   OpenAI: GPT models for text generation, DALL-E/Images API for illustrations.
+*   **Infrastructure Requirements:**
+    *   Hosting Platform: Vercel, Railway, or similar Node.js compatible platform.
+    *   Database: PostgreSQL instance.
+    *   Cache/Queue: Redis instance for BullMQ.
+    *   Image CDN: Cloudinary account.
+    *   AI Services: OpenAI API key and account.
+    *   Worker Deployment: Separate services/containers for BullMQ workers (as per `workers/` Dockerfiles).
+
+# Development Roadmap
+
+*   **MVP Requirements (Mobile-Optimized Review & Core Flow Polish):**
+    1.  **Mobile-Optimized Review Page (`/create/review/page.tsx`):**
+        *   **Phase 1.1: Core Layout & Navigation (Mobile-First)**
+            *   Single-column layout displaying one page at a time.
+            *   Prominent display of the page's original photo (`Asset.thumbnailUrl` or `Asset.url`).
+            *   Large, clear, and easily tappable `Textarea` for viewing/editing `Page.text`.
+            *   Fixed or easily accessible "Previous Page" and "Next Page" buttons.
+            *   Display current page number / total pages (e.g., "Page 3 of 8").
+        *   **Phase 1.2: Page Confirmation & Main CTA**
+            *   A clear "Confirm Page" button for the current page, visually indicating confirmation status (e.g., changing style or showing a checkmark). This updates `Page.textConfirmed` and saves text via `PATCH /api/book/[bookId]/page/[pageId]`.
+            *   A main "Illustrate My Book" call-to-action button, enabled only when all story pages are confirmed and the book is in an appropriate state (`BookStatus.COMPLETED` from text gen). This triggers `POST /api/generate/illustrations`.
+            *   Handle title page confirmation separately (e.g., confirming the book title saved via `/api/book/[bookId]`).
+        *   **Phase 1.3: Page Thumbnail Navigator (Mobile)**
+            *   Implement a horizontally scrollable, compact list of page thumbnails (using `Asset.thumbnailUrl`).
+            *   Each thumbnail should allow tapping to navigate to that page in the main view.
+            *   Visually indicate the current page and confirmation status on each thumbnail.
+        *   **Phase 1.4: API Integration & State Management**
+            *   Fetch full book data (including pages and their text) on load via `/api/book/[bookId]`.
+            *   Robust handling of `isLoadingText` (if story is still `GENERATING`), `isSavingPage`, and `isStartingIllustration` states.
+            *   Refine polling for `BookStatus.GENERATING` and `BookStatus.ILLUSTRATING` using `/api/book-status`.
+            *   Ensure smooth transition to preview page or back to editor (fix mode) after illustration.
+    2.  **Mobile-Optimized Edit Page (`/create/[bookId]/edit/page.tsx`) Polish:**
+        *   **Phase 2.1: Panel Usability on Mobile**
+            *   Verify `CoverEditorPanel`, `ArtStylePicker`, and `StoryboardGrid` are highly usable within the mobile sheet/drawer (`Sheet` component from shadcn/ui) provided by `BottomToolbar`.
+            *   Ensure controls within panels are touch-friendly and not cramped.
+            *   For `StoryboardGrid`: Confirm `dnd-kit` provides a good drag-and-drop experience on touch devices. If not, implement simpler "move up/down" buttons as an alternative for mobile.
+        *   **Phase 2.2: Canvas Responsiveness**
+            *   Ensure the `Canvas` component (`src/components/create/editor/Canvas.tsx`) correctly displays the selected page/cover image and scales gracefully on smaller screens. Consider pinch-to-zoom if image details are important for selection.
+    3.  **UI/UX Consistency & Core Flow Enhancements:**
+        *   **Phase 3.1: Visual Language & Component Reusability**
+            *   Audit existing UI components (`Button`, `Card`, `Input`, `Textarea`, `Select`, custom "Rough" components) for consistent styling and mobile responsiveness.
+            *   Refactor or create shared components for elements used across `/create`, `/edit`, and `/review` (e.g., page navigation controls, action buttons).
+        *   **Phase 3.2: `/create` Page Mobile Polish**
+            *   Review the photo upload initiation (`PhotoSourceSheet`, `FileUploader`) for optimal mobile experience.
+            *   Ensure `UploadProgressScreen` is clear and doesn't block subsequent navigation unnecessarily.
+    4.  **Mobile-Optimized Library & Preview Views:**
+        *   **Phase 4.1: Library (`/library/page.tsx` & `library-client-view.tsx`)**
+            *   Ensure `BookCard` component is fully responsive, displaying thumbnails and information clearly on small screens.
+            *   Verify touch targets for actions (dropdown menu) are adequate.
+            *   Test sorting functionality on mobile.
+        *   **Phase 4.2: Book Preview (`/book/[bookId]/preview/page.tsx`)**
+            *   Optimize `FlipbookViewer` for smooth touch-based page turning on mobile.
+            *   Ensure `BookPageGallery` (thumbnail strip) is easily scrollable and tappable on mobile.
+            *   Verify PDF export trigger is accessible and works as expected on mobile (browser download handling).
+
+*   **Future Enhancements (Post-Mobile Optimization MVP):**
+    1.  **"Winky the TREX" Theming & Branding:**
+        *   Integrate mascot ("Winky") into loading screens, empty states, and potentially as a helper/guide.
+        *   Apply children's picture book-inspired visual theme consistently (fonts, colors, "rough" UI elements if adopted).
+    2.  **Google Photos Integration:**
+        *   Implement functionality in `PhotoSourceSheet` to connect to Google Photos and import images.
+        *   Handle OAuth and API interactions with Google Photos.
+    3.  **Enhanced Editor Features:**
+        *   Basic text formatting options for the story text (bold, italics).
+        *   More granular controls for "Winkify" or specific illustration requests per page.
+        *   Option to regenerate text/illustration for individual pages.
+    4.  **Sharing & Output:**
+        *   Social sharing options for completed storybooks (e.g., a public link to the preview).
+        *   Different PDF export quality/layout options.
+    5.  **Content Expansion:**
+        *   Add more art styles to `STYLE_LIBRARY`.
+        *   Introduce `PageType.SPREAD` functionality for two-page spread layouts.
+    6.  **User Experience & Engagement:**
+        *   Enhanced user profiles (`UserProfile` model).
+        *   Push notifications for when story/illustration generation is complete.
+        *   Interactive tutorials or onboarding for new users.
+        *   Community gallery of anonymized, user-approved books.
+    7.  **Monetization (Example):**
+        *   Limit on free books/pages.
+        *   Subscription for unlimited books or premium art styles/features.
+        *   One-time purchase for high-resolution PDF or physical book printing integration.
+
+# Logical Dependency Chain (Focusing on Mobile Optimization MVP)
+
+1.  **Foundation (Existing):**
+    *   Core app setup (Next.js, Tailwind, Clerk, Prisma, Cloudinary, OpenAI, BullMQ).
+    *   Existing API endpoints for book/page CRUD, generation triggers, uploads.
+    *   Existing worker implementations for story & illustration generation.
+    *   *(Verify mobile responsiveness of very base elements like `SiteHeader`, `SiteFooter` if not already done)*.
+
+2.  **Phase 1: Mobile-Optimized `/create/page.tsx` (Upload Flow - Verify & Polish):**
+    *   *Depends on*: Foundation.
+    *   *Build*: Review and refine `FileUploader`, `PhotoSourceSheet`, and `UploadProgressScreen` for mobile usability. Ensure `/api/upload` and `/api/book/create` are robust and provide clear feedback for mobile.
+    *   *Visible Outcome*: Users can intuitively start creating a book and upload photos from their mobile device.
+
+3.  **Phase 2: Mobile-Optimized `/create/[bookId]/edit/page.tsx` (Editor Core - Critical Path):**
+    *   *Depends on*: Phase 1 (to get a `bookId` and assets).
+    *   *Build*:
+        *   Adapt `BottomToolbar` and its associated panels (`CoverEditorPanel`, `ArtStylePicker`, `StoryboardGrid`) for mobile screens using `Sheet` or `Drawer` components.
+        *   Ensure `CoverEditorPanel` input fields and asset selection are touch-friendly.
+        *   Ensure `ArtStylePicker` options are easily tappable.
+        *   Critically evaluate `StoryboardGrid` drag-and-drop on mobile. If not smooth, implement simpler "move up/down" buttons for pages within the mobile panel.
+        *   Ensure `Canvas` scales and displays well.
+    *   *Visible Outcome*: Users can edit core book details (title, cover, page order, art style) effectively on mobile.
+
+4.  **Phase 3: Mobile-Optimized `/create/review/page.tsx` (Review & Confirm - **NEW FOCUS**):**
+    *   *Depends on*: Phase 2 (users need to edit and generate text before reviewing).
+    *   *Build*:
+        *   **Layout & Core Display**: Single-column view with prominent original image and large textarea for `Page.text`.
+        *   **Navigation & Confirmation**: Implement mobile-friendly "Previous"/"Next" and "Confirm Page" buttons.
+        *   **Thumbnail Navigator**: Develop a compact, scrollable thumbnail component for page navigation, showing confirmation status.
+        *   **API & State**: Integrate with `/api/book/[bookId]` for data, `/api/book/[bookId]/page/[pageId]` for text saves, and `/api/generate/illustrations` trigger. Handle loading/polling states for text generation and illustration.
+    *   *Visible Outcome*: Users can easily review, edit, and confirm story text on mobile, then trigger illustration. This completes the core mobile creation flow up to illustration.
+
+5.  **Phase 4: Mobile-Optimized Library & Preview (`/library`, `/book/[bookId]/preview`):**
+    *   *Depends on*: Phases 1-3 (to have books to display and preview).
+    *   *Build*:
+        *   Refine `BookCard` for mobile display in the library.
+        *   Ensure `FlipbookViewer` and `BookPageGallery` (in preview) are responsive and touch-friendly.
+        *   Test PDF export initiation from mobile.
+    *   *Visible Outcome*: Users can manage and view their completed storybooks effectively on mobile devices.
+
+# Risks and Mitigations
+
+*   **Technical Challenges:**
+    *   **Drag-and-Drop on Mobile (`StoryboardGrid`):** Touch interactions for drag-and-drop can be less intuitive or performant than on desktop.
+        *   *Mitigation:* Prioritize testing with `dnd-kit` on various mobile devices. If it's not smooth or intuitive for the target user (busy parents), implement a simpler mobile-specific reordering mechanism (e.g., "move up/down" buttons per page item in the list view).
+    *   **Performance of Flipbook on Mobile:** Rendering many high-resolution images in a flipbook can strain mobile browsers.
+        *   *Mitigation:* Aggressively use Cloudinary's image optimization (quality, format, responsive sizing) for `generatedImageUrl`. Ensure `FlipbookViewer` only renders necessary pages and that `next/image` `priority` is used for initial/nearby pages.
+    *   **Maintaining UI/UX Consistency:** Ensuring the `/create/review` page feels like a natural extension of the `/create/[bookId]/edit` page on mobile, despite potentially different primary tasks.
+        *   *Mitigation:* Reuse common UI patterns and components (buttons, navigation elements, panel/sheet styles) where appropriate. Adhere to the established mobile-first design language.
+    *   **State Management Complexity:** Managing state across complex client-side interactions (editor panels, review page edits) while ensuring data persistence.
+        *   *Mitigation:* Rely on server-side state as the source of truth. Fetch data on component mount/navigation. Use local component state for transient UI states (e.g., which panel is open, current input values) and make API calls to persist changes. Minimize reliance on global context if it leads to sync issues.
+*   **Figuring out the MVP that we can build upon (for mobile review):**
+    *   **Scope Creep:** The review page could become overly complex with too many editing features initially.
+        *   *Mitigation:* For the MVP of the mobile-optimized review page, focus strictly on: 1. Viewing original image. 2. Viewing/editing generated text. 3. Confirming text for each page. 4. Easy navigation between pages. 5. Triggering illustration. Defer advanced text formatting or per-page regeneration requests.
+    *   **User Expectations for Mobile Editing:** Balancing power with simplicity on a smaller screen.
+        *   *Mitigation:* Prioritize the most common editing tasks (text correction). Conduct user testing (even informal) with target persona on mobile prototypes to validate intuitiveness.
+*   **Resource Constraints:**
+    *   **Development Time:** Implementing and thoroughly testing a polished mobile-first UX across multiple flows takes time.
+        *   *Mitigation:* Focus development effort on the `/create/review` page first, as it's the current bottleneck for mobile UX. Leverage existing responsive components from shadcn/ui as much as possible. Defer non-critical visual enhancements or "nice-to-have" features.
+    *   **Device/Browser Testing:** Ensuring a consistent experience across various mobile devices and browsers.
+        *   *Mitigation:* Utilize browser developer tools for initial mobile simulation. Prioritize testing on recent versions of iOS Safari and Android Chrome. Collect analytics on user agent strings post-launch to identify problematic devices/browsers for targeted fixes.
+
+# Appendix
+
+*   **Research findings:** [User to fill: e.g., competitor analysis, user survey results on desired mobile features, pain points with current mobile web apps.]
+*   **Technical specifications (Mobile Focus):**
+    *   **Target Mobile Devices:** Modern smartphones (iOS 15+, Android 9+).
+    *   **Responsive Breakpoints:** Align with Tailwind CSS defaults, ensuring layouts adapt gracefully.
+    *   **Touch Target Sizes:** Adhere to accessibility guidelines (e.g., minimum 44x44 CSS pixels).
+    *   **Performance Goals (Mobile):**
+        *   Review Page Load (LCP): < 3 seconds on average 4G.
+        *   Interaction Latency (typing, navigation, confirmation): < 100ms.
+    *   **Accessibility (Mobile):** Sufficient color contrast, legible font sizes, logical focus order for any interactive elements.
+*   **Key UI Components for Mobile Optimization (Existing & New):**
+    *   `src/components/ui/sheet.tsx` & `src/components/ui/drawer.tsx`: Crucial for porting panel functionality from desktop sidebars to mobile bottom sheets/drawers.
+    *   `src/components/create/editor/BottomToolbar.tsx`: Already designed for mobile-first navigation in the editor.
+    *   `src/app/create/review/page.tsx`: Needs significant mobile-first redesign (as detailed in Roadmap).
+    *   `src/components/book/BookPageGallery.tsx`: May need a more compact variant or different interaction model for thumbnail navigation within the mobile review page.
+    *   `src/components/book/FlipbookViewer.tsx`: Ensure touch gestures are smooth and intuitive on mobile.
+*   **Visual Design Inspiration (User Provided):**
+    *   Children's picture books.
+    *   Playful elements (e.g., TREX mascot - "Winky").
+    *   Simplicity and intuitiveness paramount.
+    *   "Rough" UI style (e.g., `RoughButton`, `RoughBorder`) to be considered for thematic consistency, *if* performant and accessible on mobile. If not, a clean, friendly, but standard UI is preferred.
+
+</PRD>
