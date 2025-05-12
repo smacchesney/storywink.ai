@@ -26,7 +26,7 @@ import CoverEditorPanel from '@/components/create/editor/CoverEditorPanel';
 import { Asset } from '@prisma/client'; // Import Asset for filtering
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'; // Import Tooltip
 import WritingProgressScreen from '@/components/create/editor/WritingProgressScreen'; // Import Progress Screen
-import useMediaQuery from '@/lib/utils/useMediaQuery'; // Import the hook
+import useMediaQuery from '@/hooks/useMediaQuery'; // Import the hook
 
 export default function EditBookPage() {
   const params = useParams();

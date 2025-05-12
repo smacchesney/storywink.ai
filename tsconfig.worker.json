@@ -29,6 +29,7 @@
     "node_modules",
     "dist",
     "src/app/**/*", // Explicitly exclude all Next.js app code
-    "src/components/**/*" // Explicitly exclude React components
+    "src/components/**/*", // Explicitly exclude React components
+    "src/hooks/**/*" // Explicitly exclude React hooks
   ]
 } 
