@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, Suspense } from 'react';
 import Image from 'next/image';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -35,7 +35,8 @@ type FullBookData = Book & { pages: Page[] }; // Type for the full fetched book
 
 const POLLING_INTERVAL = 5000; // Check every 5 seconds
 
-export default function ReviewPage() {
+// Define the inner component containing the main logic
+function ReviewPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams(); // <-- Get search params
   // Keep context for now, but don't rely on it for bookId
@@ -596,5 +597,14 @@ export default function ReviewPage() {
         onNext={goNext}
       />
     </div>
+  );
+}
+
+// Default export wraps the content component with Suspense
+export default function ReviewPage() {
+  return (
+    <Suspense fallback={<div className="p-6 flex justify-center items-center h-screen"><Loader2 className="h-8 w-8 animate-spin mr-2" /> Loading review page...</div>}>
+      <ReviewPageContent />
+    </Suspense>
   );
 }
