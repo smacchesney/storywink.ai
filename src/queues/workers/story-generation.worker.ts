@@ -90,7 +90,7 @@ async function processStoryGenerationJob(job: Job<WorkerJobData>): Promise<{ mes
         response_format: { type: "json_object" }, // Explicitly ask for JSON
     });
 
-    let rawResult = completion.choices[0]?.message?.content;
+    const rawResult = completion.choices[0]?.message?.content;
     logger.info({ jobId: job.id, bookId }, 'Received response from OpenAI.');
 
     if (!rawResult) {

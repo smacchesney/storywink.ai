@@ -13,7 +13,7 @@ type BookForCard = Pick<Book, 'id' | 'title' | 'status' | 'createdAt' | 'childNa
   pages?: Page[]; 
 };
 
-export interface LibraryBook extends BookForCard {}
+export type LibraryBook = BookForCard;
 
 export interface UserBooksResult {
   inProgressBooks: LibraryBook[];

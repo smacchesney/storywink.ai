@@ -47,7 +47,7 @@ const FlipbookViewer = forwardRef<FlipbookActions, FlipbookViewerProps>((
   // Adjust size based on container for responsiveness
   useEffect(() => {
     const resizeObserver = new ResizeObserver(entries => {
-      for (let entry of entries) {
+      for (const entry of entries) {
         // Simple logic: scale based on width, maintain aspect ratio
         const newWidth = entry.contentRect.width;
         const aspectRatio = width / height;

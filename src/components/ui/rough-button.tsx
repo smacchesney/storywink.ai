@@ -41,7 +41,7 @@ const RoughButton: React.FC<RoughButtonProps> = ({
       setDimensions({ width: offsetWidth, height: offsetHeight });
       
       const resizeObserver = new ResizeObserver(entries => {
-        for (let entry of entries) {
+        for (const entry of entries) {
           setDimensions({ width: entry.contentRect.width, height: entry.contentRect.height });
         }
       });
@@ -54,7 +54,7 @@ const RoughButton: React.FC<RoughButtonProps> = ({
   useEffect(() => {
     if (!svgRef.current || dimensions.width === 0 || dimensions.height === 0) return;
     const rc = rough.svg(svgRef.current);
-    let drawnElements: SVGGElement[] = []; 
+    const drawnElements: SVGGElement[] = [];
     while (svgRef.current.firstChild) {
       svgRef.current.removeChild(svgRef.current.firstChild);
     }

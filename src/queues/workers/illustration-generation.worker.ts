@@ -28,7 +28,7 @@ import logger from '../../lib/logger'; // Re-enable standard logger
 
 // Use require for the new CJS prompt library - ENSURE THE PATH IS CORRECT
 // Assuming styleLibrary.ts is compiled to styleLibrary.cjs in the same relative location
-const { createIllustrationPrompt, STYLE_LIBRARY } = require('@/lib/ai/styleLibrary.cjs');
+const styleLibraryPromise = require('@/lib/ai/styleLibrary.cjs');
 // Import the TYPE separately for TypeScript usage
 import type { StyleKey } from '@/lib/ai/styleLibrary';
 
@@ -43,6 +43,9 @@ const openai = openaiApiKey ? new OpenAI({ apiKey: openaiApiKey }) : null;
 // --- Job Processing Logic ---
 
 async function processIllustrationGenerationJob(job: Job<IllustrationGenerationJobData>) {
+  // Await the promise to get the actual module exports
+  const { createIllustrationPrompt, STYLE_LIBRARY } = await styleLibraryPromise;
+
   // Extract all necessary fields from the detailed job data
   logger.info({ jobId: job.id, receivedData: job.data }, "Received illustration job data");
   const { 
