@@ -181,7 +181,7 @@ export default function Home() {
   const secondCarouselImages = carouselImagesStyle2.slice(0, 3);
 
   return (
-    <div className="flex flex-col min-h-screen bg-[#FFF5EC] dark:bg-gray-900">
+    <div className="flex flex-col min-h-screen bg-white dark:bg-gray-900">
       <main className="flex-grow container mx-auto px-4 py-6 md:py-8 space-y-4 md:space-y-6">
         <section className="text-center">
           <h1 className="text-3xl sm:text-4xl md:text-5xl font-bold text-slate-900 dark:text-white mb-2 md:mb-3">
