@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server';
 import { v2 as cloudinary } from 'cloudinary';
 import { db as prisma } from '@/lib/db'; // Import shared instance as prisma for less code change
-import { auth } from '@clerk/nextjs/server'; // Correct import for server-side
+import { auth, currentUser } from '@clerk/nextjs/server'; // Correct import for server-side
 import logger from '@/lib/logger';
 import { PageType } from '@prisma/client'; // Import PageType
+import { ensureUser } from '@/lib/db/ensureUser'; // <-- Import ensureUser
 
 // --- DEBUG: Log environment variables before configuration ---
 console.log("--- Cloudinary Env Vars Check ---");
@@ -40,15 +41,39 @@ export async function POST(request: Request) {
     // Log the full URL - REMEMBER TO REDACT PASSWORD IF SHARING LOGS
     console.log('>>> DEBUG: Actual DATABASE_URL:', process.env.DATABASE_URL); 
     
-    const authResult = await auth(); // Await the auth() call
-    const userId = authResult?.userId; // Access userId safely
-    console.log(">>> DEBUG: Authenticated userId for upload:", userId); // Keep debug log for now
+    const { userId: clerkIdFromAuth } = await auth(); // Correctly await and destructure
+    const user = await currentUser();
+    console.log(">>> DEBUG: Authenticated userId for upload:", clerkIdFromAuth); 
 
-    if (!userId) {
+    if (!clerkIdFromAuth || !user) { // Check both IDs from auth() and the user object
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // It's good practice to ensure the ID from auth() matches the ID from currentUser()
+    if (clerkIdFromAuth !== user.id) {
+        logger.error({ authUserId: clerkIdFromAuth, currentUserId: user.id }, "Mismatched Clerk user IDs from auth() and currentUser().");
+        return NextResponse.json({ error: 'User ID mismatch' }, { status: 401 });
+    }
+
+    // Extract primary email address
+    const primaryEmail = user.emailAddresses.find(email => email.id === user.primaryEmailAddressId)?.emailAddress;
+
+    if (!primaryEmail) {
+        logger.error({ clerkUserId: user.id }, "Primary email not found for Clerk user during upload.");
+        return NextResponse.json({ error: 'User primary email not found. Please ensure your Clerk user has a primary email.' }, { status: 400 });
+    }
+
     try {
+        // --- Ensure User Exists in DB using the new utility ---
+        await ensureUser({
+            id: user.id, // This is the Clerk ID
+            email: primaryEmail,
+            name: user.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : null,
+            imageUrl: user.imageUrl,
+        });
+        logger.info({ clerkUserId: user.id, email: primaryEmail }, "User upsert via ensureUser completed in upload route.");
+        // --- End Ensure User ---
+
         const formData = await request.formData();
         const files = formData.getAll('files') as File[];
         const bookId = formData.get('bookId') as string | null; // <-- Get optional bookId
@@ -64,7 +89,7 @@ export async function POST(request: Request) {
         if (bookId) {
            // Verify user owns the book first
            const book = await prisma.book.findUnique({
-               where: { id: bookId, userId: userId },
+               where: { id: bookId, userId: clerkIdFromAuth },
                select: { _count: { select: { pages: true } } } // Efficiently get page count
            });
            if (!book) {
@@ -88,22 +113,9 @@ export async function POST(request: Request) {
             const bytes = await file.arrayBuffer();
             const buffer = Buffer.from(bytes);
 
-            // --- Ensure User Exists in DB (Idempotent Upsert) ---
-            // This prevents FK errors if the webhook hasn't processed the user yet.
-            await prisma.user.upsert({
-                where: { id: userId },
-                create: {
-                    id: userId,
-                    email: "placeholder@example.com", // Default or fetch from Clerk if needed here?
-                    // Add other fields if necessary/available, otherwise rely on webhook for updates
-                },
-                update: {},
-            });
-            logger.info({ userId }, "User upsert completed/ensured in upload route.");
-
             // --- Upload to Cloudinary ---
             const cloudinaryResult = await uploadToCloudinary(buffer, {
-                folder: `user_${userId}/uploads`, // Organize uploads by user
+                folder: `user_${clerkIdFromAuth}/uploads`, // Organize uploads by user
             });
 
             if (!cloudinaryResult || !cloudinaryResult.secure_url) {
@@ -130,7 +142,7 @@ export async function POST(request: Request) {
                 // Create Asset
                 const newAsset = await tx.asset.create({
                     data: {
-                        userId: userId,
+                        userId: clerkIdFromAuth,
                         publicId: cloudinaryResult.public_id, 
                         url: cloudinaryResult.secure_url,       
                         thumbnailUrl: cloudinary.url(cloudinaryResult.public_id, {

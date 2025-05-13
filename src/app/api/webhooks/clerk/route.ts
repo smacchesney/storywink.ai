@@ -4,6 +4,7 @@ import { WebhookEvent } from '@clerk/nextjs/server';
 import { db as prisma } from '@/lib/db';
 import logger from '@/lib/logger';
 import { NextResponse } from 'next/server';
+import { ensureUser } from '@/lib/db/ensureUser';
 
 // Ensure Clerk Webhook Secret is set in environment variables
 const WEBHOOK_SECRET = process.env.CLERK_WEBHOOK_SECRET;
@@ -74,47 +75,43 @@ export async function POST(req: Request) {
       case 'user.created':
       case 'user.updated':
         const { id, email_addresses, first_name, last_name, image_url } = evt.data;
-        const email = email_addresses?.[0]?.email_address;
+        const primaryEmail = email_addresses?.find(e => e.id === evt.data.primary_email_address_id)?.email_address || email_addresses?.[0]?.email_address;
 
-        if (!email) {
-           logger.warn({ userId: id }, 'User created/updated webhook missing primary email address.');
-           // Decide if you want to proceed without email or return an error
-           // return NextResponse.json({ error: 'Missing primary email' }, { status: 400 });
+        if (!primaryEmail) {
+           logger.warn({ clerkUserId: id, eventType }, 'User created/updated webhook missing primary email address.');
+           // Depending on your requirements, you might want to return an error or log and skip.
+           // For now, we'll log and attempt to proceed if ensureUser can handle a missing email (it currently requires it).
+           // If email is absolutely essential for user creation, return an error here.
+           return NextResponse.json({ error: 'Missing primary email for user.created/updated event' }, { status: 400 });
         }
 
-        logger.info({ userId: id, email, eventType }, `Upserting user...`);
-        await prisma.user.upsert({
-          where: { id: id },
-          update: {
-            email: email || '', // Handle case where email might be missing but we proceed
+        logger.info({ clerkUserId: id, email: primaryEmail, eventType }, `Calling ensureUser for user...`);
+        await ensureUser({
+            id: id, // This is the Clerk ID
+            email: primaryEmail,
             name: `${first_name || ''} ${last_name || ''}`.trim() || null,
             imageUrl: image_url,
-            updatedAt: new Date(), // Explicitly set updatedAt
-          },
-          create: {
-            id: id,
-            email: email || `placeholder-${id}@example.com`, // Provide a placeholder if email is critical but missing
-            name: `${first_name || ''} ${last_name || ''}`.trim() || null,
-            imageUrl: image_url,
-          },
         });
-        logger.info({ userId: id, eventType }, `User upsert completed.`);
+        logger.info({ clerkUserId: id, eventType }, `ensureUser call completed.`);
         break;
 
       case 'user.deleted':
         // Clerk might send delete events even for users not in your DB if sync was incomplete
         // Use deleteMany which doesn't throw if the user doesn't exist.
-        const { id: deletedId } = evt.data;
-        if (deletedId) {
-            logger.info({ userId: deletedId }, `Attempting to delete user...`);
+        const { id: deletedClerkId, deleted } = evt.data; // Clerk sends `id` and `deleted` status
+        
+        if (deleted && deletedClerkId) { // Ensure it's a true deletion event and ID is present
+            logger.info({ clerkUserId: deletedClerkId }, `Attempting to delete user based on clerkId...`);
             const deleteResult = await prisma.user.deleteMany({
-              where: { id: deletedId },
+              where: { clerkId: deletedClerkId } as any, // <-- Temporary type assertion
             });
             if (deleteResult.count > 0) {
-                logger.info({ userId: deletedId }, `User deleted successfully.`);
+                logger.info({ clerkUserId: deletedClerkId }, `User deleted successfully from DB.`);
             } else {
-                logger.warn({ userId: deletedId }, `User deletion webhook received, but user not found in DB.`);
+                logger.warn({ clerkUserId: deletedClerkId }, `User deletion webhook (clerkId) received, but user not found in DB.`);
             }
+        } else if (deletedClerkId) {
+            logger.warn({ clerkUserId: deletedClerkId, deletedStatus: deleted }, 'User deleted webhook received, but deleted status is not true or ID is missing.');
         } else {
              logger.warn('User deleted webhook received, but no ID found in payload data.');
         }

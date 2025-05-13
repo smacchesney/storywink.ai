@@ -4,10 +4,11 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Book, Page, BookStatus } from '@prisma/client'; // Assuming prisma client types are available
-import { Loader2, AlertTriangle, ChevronLeft, ChevronRight, Library, Download } from 'lucide-react'; // Removed CheckCircle as it wasn't used
+import { Loader2, AlertTriangle, ChevronLeft, ChevronRight, Library, Download, Home, ArrowLeft } from 'lucide-react'; // Removed CheckCircle as it wasn't used
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
+import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet";
 import BookPageGallery from '@/components/book/BookPageGallery'; // Import the new component
 import FlipbookViewer, { FlipbookActions } from '@/components/book/FlipbookViewer'; // Import FlipbookViewer and FlipbookActions type
 import { toast } from 'sonner'; // Import toast for feedback
@@ -182,7 +183,7 @@ export default function BookPreviewPage() {
   if (isLoading) {
     return (
       <div className="flex justify-center items-center min-h-screen">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <Loader2 className="h-8 w-8 animate-spin text-[#F76C5E]" />
         <p className="ml-2 text-muted-foreground">Loading your amazing book...</p>
       </div>
     );
@@ -190,7 +191,7 @@ export default function BookPreviewPage() {
 
   if (error) {
     return (
-      <div className="flex flex-col justify-center items-center min-h-screen text-destructive">
+      <div className="flex flex-col justify-center items-center min-h-screen text-destructive p-4">
         <AlertTriangle className="h-10 w-10 mb-2" />
         <p className="font-semibold">Error loading book</p>
         <p>{error}</p>
@@ -215,8 +216,8 @@ export default function BookPreviewPage() {
              <p className="mb-4 text-muted-foreground">
                Our digital artists are hard at work illustrating your story! This might take a few minutes.
              </p>
-             <Progress value={progress} className="w-full mb-4" />
-             <Loader2 className="h-6 w-6 animate-spin text-primary mx-auto" />
+             <Progress value={progress} className="w-full mb-4 bg-muted [&>div]:bg-[#F76C5E]" />
+             <Loader2 className="h-6 w-6 animate-spin text-[#F76C5E] mx-auto" />
              <p className="text-sm text-muted-foreground mt-2">Checking for updates...</p>
            </CardContent>
          </Card>
@@ -249,19 +250,50 @@ export default function BookPreviewPage() {
     const canFlipNext = currentPageNumber < totalPages;
 
     return (
-      <div className="container mx-auto p-4 flex flex-col h-[calc(100vh-4rem)]"> {/* Example: Adjust height */}
-        <div className="flex justify-between items-center mb-4 flex-shrink-0">
-          <h1 className="text-2xl font-bold">Preview: {book.title}</h1>
-          <Link href="/library" passHref>
-            <Button variant="outline">
-               <Library className="mr-2 h-4 w-4" /> 
-               Return to Library
-            </Button>
-          </Link>
+      <div className="flex flex-col h-[100dvh] bg-background">
+        {/* Mobile-optimized header */}
+        <div className="flex items-center justify-between p-3 border-b bg-white">
+          <Button variant="ghost" size="icon" asChild>
+            <Link href="/library" aria-label="Return to Library">
+              <ArrowLeft className="h-5 w-5 text-[#F76C5E]" />
+            </Link>
+          </Button>
+          <h1 className="text-lg font-semibold truncate max-w-[60%]">{book.title}</h1>
+          <Sheet>
+            <SheetTrigger asChild>
+              <Button variant="ghost" size="icon" aria-label="Book Options">
+                <svg width="18" height="4" viewBox="0 0 18 4" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M2 0C0.9 0 0 0.9 0 2C0 3.1 0.9 4 2 4C3.1 4 4 3.1 4 2C4 0.9 3.1 0 2 0ZM16 0C14.9 0 14 0.9 14 2C14 3.1 14.9 4 16 4C17.1 4 18 3.1 18 2C18 0.9 17.1 0 16 0ZM9 0C7.9 0 7 0.9 7 2C7 3.1 7.9 4 9 4C10.1 4 11 3.1 11 2C11 0.9 10.1 0 9 0Z" fill="currentColor"/>
+                </svg>
+              </Button>
+            </SheetTrigger>
+            <SheetContent side="bottom" className="rounded-t-xl h-auto">
+              <SheetTitle className="sr-only">Book Options</SheetTitle>
+              <div className="py-4 space-y-4">
+                <Link href="/library" className="flex items-center gap-2 p-2 hover:bg-muted rounded-md w-full">
+                  <Library className="h-5 w-5 text-[#F76C5E]" />
+                  <span>Return to Library</span>
+                </Link>
+                <Button 
+                  variant="ghost" 
+                  onClick={handleExportPdf} 
+                  disabled={isExportingPdf}
+                  className="flex items-center gap-2 p-2 w-full justify-start"
+                >
+                  {isExportingPdf ? (
+                    <Loader2 className="h-5 w-5 animate-spin text-[#F76C5E]" />
+                  ) : (
+                    <Download className="h-5 w-5 text-[#F76C5E]" />
+                  )}
+                  Export PDF
+                </Button>
+              </div>
+            </SheetContent>
+          </Sheet>
         </div>
         
-        {/* Gallery View */}
-        <div className="mb-4 flex-shrink-0">
+        {/* Gallery View - Optimized for mobile */}
+        <div className="px-2 pt-2 pb-1 bg-muted/20 border-b">
           <BookPageGallery
             pages={book.pages}
             bookStatus={book.status}
@@ -270,60 +302,50 @@ export default function BookPreviewPage() {
           />
         </div>
 
-        {/* Flipbook View - Replace placeholder */}
-        <div className="flex-grow flex justify-center items-center overflow-hidden relative"> {/* Container for flipbook */}
-           <FlipbookViewer
-               ref={flipbookRef} // Pass ref down
-               pages={book.pages}
-               initialPageNumber={currentPageNumber} // Sync initial page
-               onPageChange={handleFlipbookPageChange} // Sync page changes
-               className="w-full h-full max-w-4xl max-h-[80vh]" // Constrain size 
-           />
-
-           {/* Floating Navigation Buttons (Optional placement) */}
-           <div className="absolute left-2 top-1/2 -translate-y-1/2 z-10">
-             <Button 
-               variant="outline" 
-               size="icon" 
-               onClick={handlePrevPage} 
-               disabled={!canFlipPrev}
-               aria-label="Previous Page"
-             >
-               <ChevronLeft className="h-6 w-6" />
-             </Button>
-           </div>
-           <div className="absolute right-2 top-1/2 -translate-y-1/2 z-10">
-             <Button 
-               variant="outline" 
-               size="icon" 
-               onClick={handleNextPage} 
-               disabled={!canFlipNext}
-               aria-label="Next Page"
-             >
-               <ChevronRight className="h-6 w-6" />
-             </Button>
-           </div>
+        {/* Flipbook View - Takes most of the screen */}
+        <div className="flex-grow relative overflow-hidden">
+          <FlipbookViewer
+            ref={flipbookRef}
+            pages={book.pages}
+            initialPageNumber={currentPageNumber}
+            onPageChange={handleFlipbookPageChange}
+            className="w-full h-full" 
+          />
+          
+          {/* Floating Navigation Buttons */}
+          <div className="absolute inset-y-0 left-0 flex items-center">
+            <Button 
+              variant="ghost" 
+              size="icon"
+              onClick={handlePrevPage} 
+              disabled={!canFlipPrev}
+              aria-label="Previous Page"
+              className="h-10 w-10 bg-background/70 rounded-r-full shadow"
+            >
+              <ChevronLeft className="h-6 w-6 text-[#F76C5E]" />
+            </Button>
+          </div>
+          <div className="absolute inset-y-0 right-0 flex items-center">
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              onClick={handleNextPage} 
+              disabled={!canFlipNext}
+              aria-label="Next Page"
+              className="h-10 w-10 bg-background/70 rounded-l-full shadow"
+            >
+              <ChevronRight className="h-6 w-6 text-[#F76C5E]" />
+            </Button>
+          </div>
         </div>
 
-        {/* Footer Area with Page Number and Export */}
-        <div className="mt-4 pt-2 border-t flex justify-between items-center flex-shrink-0">
-          {/* Page Number Display */}
-          <span className="text-sm text-muted-foreground">
-            Page {currentPageNumber} of {totalPages}
-          </span>
-          {/* Export Button Placeholder */}
-          <Button 
-            variant="outline" 
-            onClick={handleExportPdf} 
-            disabled={isExportingPdf}
-          >
-            {isExportingPdf ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <Download className="mr-2 h-4 w-4" />
-            )}
-            Export PDF
-          </Button> 
+        {/* Footer with Page Number */}
+        <div className="flex justify-center items-center py-2 bg-white border-t">
+          <div className="flex items-center bg-muted/20 rounded-full px-4 py-1">
+            <span className="text-sm font-medium">
+              Page {currentPageNumber} of {totalPages}
+            </span>
+          </div>
         </div>
       </div>
     );

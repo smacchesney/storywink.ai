@@ -21,7 +21,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { MoreHorizontal, Trash2, Copy, Pencil, Eye, Loader2 } from 'lucide-react';
+import { MoreHorizontal, Trash2, Copy, Pencil, Eye, Loader2, BookOpen, Clock, CheckCircle } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { LibraryBook } from '@/app/library/actions'; // Assuming this type includes pages or coverImageUrl
@@ -57,6 +57,20 @@ const getStatusVariant = (status: BookStatus): "default" | "secondary" | "destru
   }
 };
 
+// Helper function to get status icon
+const getStatusIcon = (status: BookStatus) => {
+  switch (status) {
+    case BookStatus.COMPLETED:
+      return <CheckCircle className="h-4 w-4 mr-1.5" />;
+    case BookStatus.ILLUSTRATING:
+    case BookStatus.GENERATING:
+      return <Clock className="h-4 w-4 mr-1.5" />;
+    case BookStatus.DRAFT:
+    default:
+      return <BookOpen className="h-4 w-4 mr-1.5" />;
+  }
+};
+
 const BookCard: React.FC<BookCardProps> = ({
   id,
   title,
@@ -72,26 +86,30 @@ const BookCard: React.FC<BookCardProps> = ({
   const router = useRouter();
 
   const handleEditClick = () => {
-    // TODO: Implement navigation to the correct editor step based on book status
-    router.push(`/create?bookId=${id}`); // Example: Navigate to a generic create/edit page
+    // Navigate to the correct editor step based on book status
+    router.push(`/create?bookId=${id}`);
+  };
+  
+  const handleViewClick = () => {
+    // Navigate to book preview
+    router.push(`/book/${id}/preview`);
   };
 
-  const cardContent = (
-    <>
-      <CardHeader className="pb-2 flex-shrink-0">
-        <CardTitle className="text-lg truncate">{title || 'Untitled Book'}</CardTitle>
-        <CardDescription>Last updated: {updatedAt ? new Date(updatedAt).toLocaleDateString() : 'N/A'}</CardDescription>
-      </CardHeader>
-      <CardContent className="flex-grow flex flex-col pt-2"> {/* Ensure content grows and uses flex */}
-        <div className="aspect-video bg-muted rounded-md mb-2 overflow-hidden relative flex-shrink-0">
-          {/* Check if pages exists before accessing it */}
+  const isCompleted = status === BookStatus.COMPLETED;
+  const isProcessing = status === BookStatus.GENERATING || status === BookStatus.ILLUSTRATING;
+
+  // Mobile-friendly card layout for all devices
+  return (
+    <Card className="flex flex-col hover:shadow-md transition-shadow overflow-hidden">
+      <div className="flex flex-row sm:flex-col">
+        {/* Image thumbnail - larger on mobile, takes left side */}
+        <div className="relative w-28 h-28 sm:w-full sm:h-auto sm:aspect-video flex-shrink-0 sm:rounded-none bg-muted overflow-hidden">
           {coverImageUrl || (pages && pages.length > 0 && pages[0].generatedImageUrl) ? (
             <Image
-              // Add nullish coalescing for safety, though the condition above should prevent null/undefined
-              src={coverImageUrl || pages?.[0]?.generatedImageUrl || ''} 
+              src={coverImageUrl || pages?.[0]?.generatedImageUrl || ''}
               alt={`${title || 'Book'} cover`}
               fill
-              sizes="(max-width: 640px) 90vw, (max-width: 1024px) 45vw, 25vw"
+              sizes="(max-width: 640px) 112px, (max-width: 1024px) 45vw, 25vw"
               className="object-cover"
             />
           ) : (
@@ -100,32 +118,125 @@ const BookCard: React.FC<BookCardProps> = ({
             </div>
           )}
         </div>
-        <div className="mt-auto"> {/* Push badge to bottom */}
-            <Badge variant={getStatusVariant(status)}>{status}</Badge>
+        
+        {/* Content on the right side for mobile, underneath for desktop */}
+        <div className="flex flex-col flex-grow p-3 sm:p-0">
+          <CardHeader className="p-3 sm:pb-2 sm:pt-4 flex-shrink-0">
+            <CardTitle className="text-base sm:text-lg truncate">{title || 'Untitled Book'}</CardTitle>
+            <CardDescription className="text-xs sm:text-sm">
+              Last updated: {updatedAt ? new Date(updatedAt).toLocaleDateString() : 'N/A'}
+            </CardDescription>
+          </CardHeader>
+          
+          <CardContent className="hidden sm:flex flex-col p-3 pt-0 flex-grow">
+            {/* Status badge displayed on desktop at the bottom of content */}
+            <div className="mt-auto">
+              <Badge 
+                variant={getStatusVariant(status)}
+                className={cn(
+                  "inline-flex items-center",
+                  status === BookStatus.COMPLETED && "bg-[#F76C5E]"
+                )}
+              >
+                {getStatusIcon(status)}
+                {status}
+              </Badge>
+            </div>
+          </CardContent>
+          
+          {/* Mobile-only status badge */}
+          <div className="sm:hidden px-3 pb-2">
+            <Badge 
+              variant={getStatusVariant(status)}
+              className={cn(
+                "inline-flex items-center text-xs",
+                status === BookStatus.COMPLETED && "bg-[#F76C5E]"
+              )}
+            >
+              {getStatusIcon(status)}
+              {status}
+            </Badge>
+          </div>
+          
+          {/* Primary actions for mobile - larger touch targets */}
+          <div className="flex mt-auto p-3 pt-0 sm:hidden">
+            {isCompleted ? (
+              <Button 
+                onClick={handleViewClick} 
+                size="sm" 
+                className="mr-2 flex-grow"
+                style={{ backgroundColor: '#F76C5E' }}
+              >
+                <Eye className="h-4 w-4 mr-1.5" />
+                View
+              </Button>
+            ) : (
+              <Button 
+                onClick={handleEditClick} 
+                size="sm" 
+                className="mr-2 flex-grow"
+                disabled={isProcessing}
+                style={!isProcessing ? { backgroundColor: '#F76C5E' } : {}}
+              >
+                <Pencil className="h-4 w-4 mr-1.5" />
+                Edit
+              </Button>
+            )}
+            
+            {/* More actions dropdown - mobile */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" disabled={isDeleting || isDuplicating}>
+                  {isDeleting || isDuplicating ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <MoreHorizontal className="h-4 w-4" />
+                  )}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={onDuplicateClick} disabled={isDuplicating}>
+                  <Copy className="mr-2 h-4 w-4" /> Duplicate
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem className="text-destructive focus:text-destructive focus:bg-destructive/10" onClick={onDeleteClick} disabled={isDeleting}>
+                  <Trash2 className="mr-2 h-4 w-4" /> Delete
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
-      </CardContent>
-    </>
-  );
-
-  const isLink = status === BookStatus.COMPLETED;
-
-  return (
-    <Card className="flex flex-col hover:shadow-md transition-shadow h-full"> {/* Ensure Card takes full height */}
-      {isLink ? (
-        <Link href={`/book/${id}/preview`} className="flex flex-col flex-grow focus:outline-none focus:ring-2 focus:ring-primary rounded-lg overflow-hidden">
-          {cardContent}
-        </Link>
-      ) : (
-        <div className="flex flex-col flex-grow overflow-hidden"> {/* Non-link wrapper needs similar layout */}
-            {cardContent}
-        </div>
-      )}
-
-      {/* Actions Footer - Always outside the Link/wrapper */}
-      <CardFooter className="flex justify-end pt-2 flex-shrink-0"> {/* Prevent footer shrinking */}
+      </div>
+            
+      {/* Desktop-only footer with actions */}
+      <CardFooter className="hidden sm:flex justify-between items-center pt-2 px-4 pb-3 flex-shrink-0">
+        {isCompleted ? (
+          <Button 
+            onClick={handleViewClick} 
+            size="sm" 
+            style={{ backgroundColor: '#F76C5E' }}
+            className="flex-grow mr-2"
+          >
+            <Eye className="h-4 w-4 mr-1.5" />
+            View Preview
+          </Button>
+        ) : (
+          <Button 
+            onClick={handleEditClick} 
+            size="sm"
+            style={!isProcessing ? { backgroundColor: '#F76C5E' } : {}}
+            className="flex-grow mr-2"
+            disabled={isProcessing}
+          >
+            <Pencil className="h-4 w-4 mr-1.5" />
+            Edit
+          </Button>
+        )}
+        
+        {/* Dropdown menu for secondary actions */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" disabled={isDeleting || isDuplicating}>
+            <Button variant="outline" size="icon" disabled={isDeleting || isDuplicating}>
               {isDeleting || isDuplicating ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
@@ -135,19 +246,9 @@ const BookCard: React.FC<BookCardProps> = ({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            {isLink ? (
-              <DropdownMenuItem onClick={() => router.push(`/book/${id}/preview`)}>
-                <Eye className="mr-2 h-4 w-4" /> View Preview
-              </DropdownMenuItem>
-            ) : (
-              <DropdownMenuItem onClick={handleEditClick} disabled={status === BookStatus.GENERATING || status === BookStatus.ILLUSTRATING}>
-                <Pencil className="mr-2 h-4 w-4" /> Edit
-              </DropdownMenuItem>
-            )}
             <DropdownMenuItem onClick={onDuplicateClick} disabled={isDuplicating}>
               <Copy className="mr-2 h-4 w-4" /> Duplicate
             </DropdownMenuItem>
-            {/* Add other relevant actions like Share or Download PDF later */}
             <DropdownMenuSeparator />
             <DropdownMenuItem className="text-destructive focus:text-destructive focus:bg-destructive/10" onClick={onDeleteClick} disabled={isDeleting}>
               <Trash2 className="mr-2 h-4 w-4" /> Delete

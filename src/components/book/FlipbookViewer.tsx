@@ -12,9 +12,7 @@ interface FlipbookViewerProps {
   initialPageNumber?: number;
   onPageChange?: (pageNumber: number) => void;
   className?: string;
-  // Add width and height props for flexibility, or calculate based on parent
-  width?: number;
-  height?: number;
+  // width and height props are removed as dimensions are now derived
 }
 
 // Define the type for the imperative handle
@@ -29,14 +27,12 @@ const FlipbookViewer = forwardRef<FlipbookActions, FlipbookViewerProps>((
     initialPageNumber = 1,
     onPageChange,
     className,
-    width = 600,
-    height = 800,
+    // width and height props removed from destructuring
   },
   ref // Receive the forwarded ref
 ) => {
-  const flipBookInternalRef = useRef<any>(null); // Internal ref for HTMLFlipBook
-  const [containerWidth, setContainerWidth] = useState<number>(width);
-  const [containerHeight, setContainerHeight] = useState<number>(height);
+  const flipBookInternalRef = useRef<any>(null);
+  const [spreadWidth, setSpreadWidth] = useState<number>(0); // Changed state for dimensions
   const containerRef = useRef<HTMLDivElement>(null); // Ref for the container div
 
   // Expose the pageFlip instance via the forwarded ref
@@ -46,14 +42,9 @@ const FlipbookViewer = forwardRef<FlipbookActions, FlipbookViewerProps>((
 
   // Adjust size based on container for responsiveness
   useEffect(() => {
-    const resizeObserver = new ResizeObserver(entries => {
-      for (const entry of entries) {
-        // Simple logic: scale based on width, maintain aspect ratio
-        const newWidth = entry.contentRect.width;
-        const aspectRatio = width / height;
-        const newHeight = newWidth / aspectRatio;
-        setContainerWidth(newWidth);
-        setContainerHeight(newHeight);
+    const resizeObserver = new ResizeObserver(([entry]) => { // Simplified to use [entry]
+      if (entry) {
+        setSpreadWidth(entry.contentRect.width);
       }
     });
 
@@ -62,11 +53,13 @@ const FlipbookViewer = forwardRef<FlipbookActions, FlipbookViewerProps>((
     }
 
     return () => {
-      if (containerRef.current) {
-        resizeObserver.unobserve(containerRef.current);
-      }
+      // Disconnect the observer on cleanup
+      resizeObserver.disconnect();
     };
-  }, [width, height]); // Rerun if default width/height props change
+  }, []); // Empty dependency array, containerRef is stable
+
+  const pageSide = Math.floor(spreadWidth / 2);
+  const isPortrait = spreadWidth < 640;
 
   // Handler for page flip event from the library
   const handleFlip = useCallback((e: any) => {
@@ -84,72 +77,83 @@ const FlipbookViewer = forwardRef<FlipbookActions, FlipbookViewerProps>((
         // Ensure page number is within valid range (0 to pageCount - 1)
         const pageIndex = Math.max(0, Math.min(initialPageNumber - 1, pages.length - 1));
         console.log(`Flipbook initialized. Turning to initial page index: ${pageIndex}`);
-        // Use a slight delay if needed, though onInit should be reliable
-        // setTimeout(() => {
             try {
                flipBookInternalRef.current?.pageFlip()?.turnToPage(pageIndex);
             } catch (e) {
                console.error("Error turning page on init:", e);
             }
-        // }, 0);
      }
   }, [initialPageNumber, pages.length]);
 
   return (
-    <div ref={containerRef} className={cn("w-full flex justify-center items-center", className)} style={{ height: containerHeight }}> 
-      <HTMLFlipBook
-        ref={flipBookInternalRef}
-        width={containerWidth / 2} // Each page takes half the width in spread view
-        height={containerHeight}
-        size="stretch"
-        minWidth={315}
-        maxWidth={1000}
-        minHeight={400}
-        maxHeight={1536}
-        maxShadowOpacity={0.5}
-        style={{}}
-        startPage={0}
-        drawShadow={true}
-        flippingTime={1000}
-        usePortrait={false}
-        mobileScrollSupport={true}
-        clickEventForward={true}
-        useMouseEvents={true}
-        showCover={false}
-        startZIndex={0}
-        autoSize={true}
-        swipeDistance={30}
-        showPageCorners={true}
-        disableFlipByClick={false}
-        renderOnlyPageLengthChange={false}
-        className={cn("w-full flex justify-center items-center", className)}
-      >
-        {pages.map((page, index) => (
-          <div key={page.id || index} className="bg-white border border-gray-200 flex justify-center items-center overflow-hidden">
-            {/* Page content - Render Image or loading/error state */}
-            {page.generatedImageUrl ? (
-              <div className="relative w-full h-full">
-                 <Image
-                   src={page.generatedImageUrl}
-                   alt={`Page ${page.pageNumber}`}
-                   fill
-                   sizes={`(max-width: 768px) 90vw, ${containerWidth/2}px`} // Optimize sizes
-                   style={{ objectFit: 'contain' }} // Use contain to see the whole image
-                   priority={index < 2} // Prioritize loading first few images
-                 />
-              </div>
-            ) : (
-              // Placeholder for loading or failed state based on book status (needs logic)
-              <div className="text-center text-muted-foreground">
-                <Loader2 className="h-8 w-8 animate-spin mx-auto mb-2" />
-                <p>Loading page {page.pageNumber}...</p>
-              </div>
-            )}
-            {/* You can add page numbers here if desired */}
-            {/* <span className="absolute bottom-2 right-2 text-xs text-gray-500">{page.pageNumber}</span> */}
-          </div>
-        ))}
-      </HTMLFlipBook>
+    <div 
+      ref={containerRef} 
+      className={cn("w-full", className)} // Updated className
+      style={{ height: pageSide > 0 ? pageSide : 'auto' }} // Set height to pageSide, with a fallback for initial 0
+    > 
+      {pageSide > 0 && ( // Conditionally render HTMLFlipBook when pageSide is valid
+        <HTMLFlipBook
+          ref={flipBookInternalRef}
+          // Square geometry
+          width={pageSide}
+          height={pageSide}
+          size="stretch"
+
+          // Dummy "required" props to satisfy IProps (Option A)
+          className=""
+          style={{}}
+          startPage={0}
+          minWidth={1}
+          minHeight={1}
+          maxWidth={4096}
+          maxHeight={4096}
+          // Adding more dummy props based on linter feedback and original values
+          startZIndex={0}          // Original: 0
+          autoSize={true}          // Original: true
+          showCover={false}        // Original: false
+          useMouseEvents={true}    // Original: true
+          // Adding the remaining missing props based on new linter feedback
+          swipeDistance={30}       // Original: 30
+          showPageCorners={true}   // Original: true
+          disableFlipByClick={false} // Original: false
+
+          // Real settings
+          drawShadow
+          maxShadowOpacity={0.7}
+          flippingTime={700}
+          usePortrait={isPortrait}
+          mobileScrollSupport={false}
+          clickEventForward
+
+          // Event handlers
+          onFlip={handleFlip}
+          onInit={handleInit}
+        >
+          {pages.map((page, index) => ( // index can be used if page.pageNumber is not reliable for priority
+            <div key={page.id || index} className="bg-white border border-gray-200 flex justify-center items-center overflow-hidden">
+              {/* Page content - Render Image or loading/error state */}
+              {page.generatedImageUrl ? (
+                <div className="relative w-full h-full">
+                   <Image
+                     src={page.generatedImageUrl}
+                     alt={`Page ${page.pageNumber}`}
+                     fill
+                     sizes={`(max-width: 768px) 90vw, ${pageSide}px`} // Updated to use pageSide
+                     style={{ objectFit: 'cover' }} // Changed to 'cover'
+                     priority={page.pageNumber <= 2} // Use page.pageNumber for priority
+                   />
+                </div>
+              ) : (
+                // Placeholder for loading or failed state
+                <div className="text-center text-muted-foreground">
+                  <Loader2 className="h-8 w-8 animate-spin mx-auto mb-2" />
+                  <p>Loading page {page.pageNumber}...</p>
+                </div>
+              )}
+            </div>
+          ))}
+        </HTMLFlipBook>
+      )}
     </div>
   );
 });
