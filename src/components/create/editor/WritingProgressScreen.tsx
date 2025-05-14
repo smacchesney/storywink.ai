@@ -2,7 +2,9 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Loader2 } from 'lucide-react'; // Or a custom doodle SVG
+// import { Loader2 } from 'lucide-react'; // Or a custom doodle SVG
+// import { TextShimmer } from '@/components/ui/text-shimmer'; // Old import
+import { TextShimmerWave } from '@/components/ui/text-shimmer-wave'; // New import
 import { toast } from 'sonner';
 import { BookStatus } from '@prisma/client';
 
@@ -74,13 +76,20 @@ export function WritingProgressScreen({
   return (
     <div className="fixed inset-0 bg-white flex flex-col items-center justify-center z-50">
       {/* Placeholder for Pink Doodle - using Loader for now */}
-      <Loader2 className="w-20 h-20 md:w-28 md:h-28 text-[#F76C5E] animate-spin mb-8" />
+      {/* <Loader2 className="w-20 h-20 md:w-28 md:h-28 text-[#F76C5E] animate-spin mb-8" /> */}
       {/* // TODO: Replace with actual doodle SVG/component */}
 
       {/* Updated Text */}
-      <p className="text-lg md:text-xl text-gray-700 font-medium">
+      <TextShimmerWave
+        className="text-lg md:text-xl font-medium [--base-color:#374151] [--base-gradient-color:#F76C5E] dark:[--base-color:#D1D5DB] dark:[--base-gradient-color:#F76C5E]"
+        duration={1}
+        spread={1}
+        zDistance={1}
+        scaleDistance={1.1}
+        rotateYDistance={20}  
+      >
         Brewing a Bedtime adventure...
-      </p>
+      </TextShimmerWave>
     </div>
   );
 }
