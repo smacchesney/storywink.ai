@@ -17,6 +17,7 @@ import RoughBorder from "@/components/ui/rough-border";
 import PageTracker from '@/components/create/review/PageTracker';
 import PageCard from '@/components/create/review/PageCard';
 import NavigationControls from '@/components/create/review/NavigationControls';
+import IllustrationProgressScreen from '@/components/create/editor/IllustrationProgressScreen';
 
 // Define PageData with necessary fields from BookData context or fetched data
 type PageData = {
@@ -339,6 +340,8 @@ function ReviewPageContent() {
   // --- Effect to Manage Final Status Polling Interval --- 
   useEffect(() => {
     const bookIdToPoll = bookIdFromUrl;
+    // If the IllustrationProgressScreen is handling polling, this effect might be redundant or simplified.
+    // For now, we'll keep its structure but the actual polling logic is in IllustrationProgressScreen.
     if (isFetchingInitialData || !isAwaitingFinalStatus || !bookIdToPoll) {
       if (finalStatusPollingIntervalRef.current) {
         clearInterval(finalStatusPollingIntervalRef.current);
@@ -347,11 +350,9 @@ function ReviewPageContent() {
       return;
     }
 
-    if (!finalStatusPollingIntervalRef.current) {
-      console.log(`Starting FINAL status polling interval for bookId: ${bookIdToPoll}`);
-      checkFinalBookStatus(); // Initial check
-      finalStatusPollingIntervalRef.current = setInterval(checkFinalBookStatus, POLLING_INTERVAL);
-    }
+    // The actual polling is now managed by IllustrationProgressScreen
+    // This effect is now mainly for ensuring cleanup if the component unmounts while isAwaitingFinalStatus is true
+    // but before IllustrationProgressScreen takes over or if it also unmounts.
 
     // Cleanup
     return () => {
@@ -360,7 +361,7 @@ function ReviewPageContent() {
         finalStatusPollingIntervalRef.current = null;
       }
     };
-  }, [isFetchingInitialData, isAwaitingFinalStatus, bookIdFromUrl, checkFinalBookStatus]); // <-- Update dependencies
+  }, [isFetchingInitialData, isAwaitingFinalStatus, bookIdFromUrl]); // Removed checkFinalBookStatus from dependencies
 
   // Navigation handlers (operate on full pages array index)
   const goPrev = () => setCurrentIndex(i => Math.max(i - 1, 0));
@@ -516,6 +517,29 @@ function ReviewPageContent() {
      // No finally block needed here for resetting state if polling takes over
   };
 
+  const handleIllustrationError = useCallback((_bookId: string, errorMsg?: string) => {
+    if (!isMountedRef.current) return;
+    setIsAwaitingFinalStatus(false); // Stop showing the progress screen
+    setIsStartingIllustration(false); // Reset button state
+    toast.error(errorMsg || "An unknown error occurred during illustration.");
+    // Optionally, navigate to an error state or back to the editor
+    // router.push(`/create?bookId=${bookIdFromUrl}&error=illustration`);
+  }, [bookIdFromUrl, router]);
+
+  const handleIllustrationComplete = useCallback((_bookId: string, finalStatus: BookStatus) => {
+    if (!isMountedRef.current) return;
+    setIsAwaitingFinalStatus(false); // Stop showing the progress screen
+    setIsStartingIllustration(false); // Reset button state
+
+    if (finalStatus === BookStatus.COMPLETED) {
+      // toast.success is already shown by IllustrationProgressScreen
+      router.push(`/book/${_bookId}/preview`);
+    } else { // PARTIAL or FAILED
+      // toast.warn/error is already shown by IllustrationProgressScreen
+      router.push(`/create?bookId=${_bookId}&fix=1`);
+    }
+  }, [router]);
+
   // Keyboard arrow navigation
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
@@ -535,20 +559,20 @@ function ReviewPageContent() {
   if (isFetchingInitialData) {
       return <div className="p-6 flex justify-center items-center h-screen"><Loader2 className="h-8 w-8 animate-spin mr-2" /> Loading review data...</div>;
   }
-  if (pages.length === 0 && !isFetchingInitialData) {
-      return <div className="p-6 text-red-600">Error: Could not load pages for review. Please go back and try again.</div>;
+  
+  // Render IllustrationProgressScreen if awaiting final status
+  if (isAwaitingFinalStatus && bookIdFromUrl) {
+    return (
+      <IllustrationProgressScreen 
+        bookId={bookIdFromUrl} 
+        onComplete={handleIllustrationComplete} 
+        onError={handleIllustrationError} 
+      />
+    );
   }
 
-  // Add rendering for Awaiting Final Status
-  if (isAwaitingFinalStatus) {
-       return (
-         <div className="p-6 flex flex-col justify-center items-center h-screen text-center">
-              <Loader2 className="h-8 w-8 animate-spin mr-2 mb-4 text-primary" />
-              <h2 className="text-xl font-semibold mb-2">Illustrations In Progress...</h2>
-              <p className="text-muted-foreground mb-4">Your book is being illustrated. We'll redirect you when it's ready.</p>
-              <p className="text-sm text-muted-foreground">(You can safely navigate away or check status in "My Library")</p>
-         </div>
-       );
+  if (pages.length === 0 && !isFetchingInitialData) {
+      return <div className="p-6 text-red-600">Error: Could not load pages for review. Please go back and try again.</div>;
   }
 
   const currentPageData = pages[currentIndex];
@@ -564,7 +588,7 @@ function ReviewPageContent() {
         confirmedPages={confirmedCount} 
         onPageSelect={setCurrentIndex} 
         allPagesConfirmed={allConfirmed}
-        isProcessing={isWorking}
+        isProcessing={isWorking && !isAwaitingFinalStatus} // Modify isProcessing if needed
         onIllustrate={handleIllustrate}
       />
       

@@ -19,7 +19,6 @@ export function WritingProgressScreen({
   onComplete,
   onError,
 }: WritingProgressScreenProps) {
-  const [currentStatus, setCurrentStatus] = useState<BookStatus | string>("GENERATING");
   const [pollCount, setPollCount] = useState(0);
   const MAX_POLLS = 24; // Timeout after 2 minutes (24 * 5 seconds)
 
@@ -36,12 +35,12 @@ export function WritingProgressScreen({
           if (pollCount > MAX_POLLS / 2) { // Stop if errors persist
               throw new Error("Failed to get book status repeatedly.");
           }
+          setPollCount(prev => prev + 1);
           return; // Continue polling for a while
         }
         
         const data = await response.json();
         const status = data.status as BookStatus;
-        setCurrentStatus(status);
         setPollCount(prev => prev + 1);
 
         if (status === BookStatus.COMPLETED) {
@@ -57,7 +56,7 @@ export function WritingProgressScreen({
             toast.error("Story generation is taking longer than expected. Please check back later.");
             onError(bookId, "Generation timed out.");
         }
-        // Continue polling if still GENERATING or ILLUSTRATING (if applicable later)
+        // Continue polling if still GENERATING
       } catch (err) {
         console.error("Error polling book status:", err);
         clearInterval(intervalId);
@@ -70,7 +69,7 @@ export function WritingProgressScreen({
     // Cleanup function to clear interval when component unmounts
     return () => clearInterval(intervalId);
 
-  }, [bookId, onComplete, onError, pollCount]); // Include pollCount in dependencies
+  }, [bookId, onComplete, onError, pollCount]); // pollCount is a dependency
 
   return (
     <div className="fixed inset-0 bg-white flex flex-col items-center justify-center z-50">
@@ -78,11 +77,10 @@ export function WritingProgressScreen({
       <Loader2 className="w-20 h-20 md:w-28 md:h-28 text-[#F76C5E] animate-spin mb-8" />
       {/* // TODO: Replace with actual doodle SVG/component */}
 
-      {/* Progress Text */}
-      <p className="text-lg md:text-xl text-gray-700 font-medium mb-4 animate-pulse">
-        Winking your story... ✨
+      {/* Updated Text */}
+      <p className="text-lg md:text-xl text-gray-700 font-medium">
+        Brewing a Bedtime adventure...
       </p>
-      <p className="text-sm text-gray-500">(Status: {currentStatus})</p>
     </div>
   );
 }

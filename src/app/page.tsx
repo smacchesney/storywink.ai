@@ -7,6 +7,8 @@ import React, { useRef, useEffect, useState, useContext, createContext } from 'r
 import { cn } from "@/lib/utils";
 import StatsCounter from "@/components/landing-page/stats-counter";
 import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { useAuth } from "@clerk/nextjs";
+import { useRouter } from "next/navigation";
 
 // Placeholder data for the first carousel (first 3 images for top display)
 const carouselImages = [
@@ -179,6 +181,23 @@ const SynchronizedBeforeAfterPair: React.FC<SynchronizedBeforeAfterPairProps> = 
 export default function Home() {
   const firstCarouselImages = carouselImages.slice(0, 3);
   const secondCarouselImages = carouselImagesStyle2.slice(0, 3);
+  const { isLoaded, isSignedIn } = useAuth();
+  const router = useRouter();
+
+  const handleCreateStorybookClick = () => {
+    if (!isLoaded) {
+      // Optionally, handle loading state, e.g., disable button or show spinner
+      return;
+    }
+
+    if (isSignedIn) {
+      router.push("/create");
+    } else {
+      // Redirect to Clerk's sign-in page, then to /create after successful sign-in.
+      // You can change to /sign-up if you prefer to send users to sign-up first.
+      router.push(`/sign-in?redirect_url=${encodeURIComponent('/create')}`);
+    }
+  };
 
   return (
     <div className="flex flex-col min-h-screen bg-white dark:bg-gray-900">
@@ -193,15 +212,15 @@ export default function Home() {
           </p>
           
           <div className="flex flex-col sm:flex-row justify-center items-center gap-3 mb-4">
-            <Link href="/create" passHref className="w-full sm:w-auto">
-              <Button
-                size="lg"
-                variant="default"
-                className="w-full sm:w-auto px-8 py-3 md:px-10 md:py-4 text-lg font-semibold bg-[#F76C5E] text-white hover:bg-[#F76C5E]/90 transition-colors"
-              >
-                Create Your Storybook
-              </Button>
-            </Link>
+            <Button
+              size="lg"
+              variant="default"
+              className="w-full sm:w-auto px-8 py-3 md:px-10 md:py-4 text-lg font-semibold bg-[#F76C5E] text-white hover:bg-[#F76C5E]/90 transition-colors"
+              onClick={handleCreateStorybookClick}
+              disabled={!isLoaded}
+            >
+              {isLoaded ? "Create Your Storybook" : "Loading..."}
+            </Button>
           </div>
           
           <SynchronizedCarousels imageSets={[firstCarouselImages, secondCarouselImages]} interval={4000}>

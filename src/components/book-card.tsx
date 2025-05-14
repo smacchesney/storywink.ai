@@ -87,7 +87,25 @@ const BookCard: React.FC<BookCardProps> = ({
 
   const handleEditClick = () => {
     // Navigate to the correct editor step based on book status
-    router.push(`/create?bookId=${id}`);
+    switch (status) {
+      case BookStatus.DRAFT:
+        router.push(`/create/${id}/edit`);
+        break;
+      case BookStatus.GENERATING: // Text generation in progress
+      case BookStatus.ILLUSTRATING: // Illustration generation in progress
+      case BookStatus.PARTIAL: // Some illustrations failed or were flagged
+      case BookStatus.FAILED: // Text or illustration generation failed
+        router.push(`/create/review?bookId=${id}`);
+        break;
+      // For COMPLETED status, the "View" button is shown instead of "Edit",
+      // so no explicit case is needed here for navigation.
+      // If an "Edit" button were to be shown for COMPLETED books for some reason,
+      // it would likely go to /create/[bookId]/edit or a specific "post-completion editor".
+      default:
+        // Fallback to the main editor page if status is unknown or not handled above
+        router.push(`/create/${id}/edit`);
+        break;
+    }
   };
   
   const handleViewClick = () => {
@@ -98,15 +116,19 @@ const BookCard: React.FC<BookCardProps> = ({
   const isCompleted = status === BookStatus.COMPLETED;
   const isProcessing = status === BookStatus.GENERATING || status === BookStatus.ILLUSTRATING;
 
+  // Determine the image URL to display based on the coverImageUrl prop
+  // The logic to select between original/generated based on status is now handled in library/actions.ts
+  const displayImageUrl = coverImageUrl;
+
   // Mobile-friendly card layout for all devices
   return (
     <Card className="flex flex-col hover:shadow-md transition-shadow overflow-hidden">
       <div className="flex flex-row sm:flex-col">
         {/* Image thumbnail - larger on mobile, takes left side */}
         <div className="relative w-28 h-28 sm:w-full sm:h-auto sm:aspect-video flex-shrink-0 sm:rounded-none bg-muted overflow-hidden">
-          {coverImageUrl || (pages && pages.length > 0 && pages[0].generatedImageUrl) ? (
+          {displayImageUrl ? (
             <Image
-              src={coverImageUrl || pages?.[0]?.generatedImageUrl || ''}
+              src={displayImageUrl}
               alt={`${title || 'Book'} cover`}
               fill
               sizes="(max-width: 640px) 112px, (max-width: 1024px) 45vw, 25vw"

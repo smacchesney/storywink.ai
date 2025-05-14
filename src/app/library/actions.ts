@@ -6,18 +6,14 @@ import { Prisma, Book, BookStatus, Page } from "@prisma/client"; // Use @prisma/
 import { revalidatePath } from 'next/cache'; // Import for revalidation
 
 // Define the structure of the book data needed by the card
-// Use imported Book type
-type BookForCard = Pick<Book, 'id' | 'title' | 'status' | 'createdAt' | 'childName' | 'updatedAt'> & {
-  thumbnailUrl?: string | null;
-  // Explicitly include optional pages for thumbnail lookup
-  pages?: Page[]; 
+export type LibraryBook = Pick<Book, 'id' | 'title' | 'status' | 'createdAt' | 'childName' | 'updatedAt'> & {
+  coverImageUrl: string | null;
 };
-
-export type LibraryBook = BookForCard;
 
 export interface UserBooksResult {
   inProgressBooks: LibraryBook[];
   completedBooks: LibraryBook[];
+  error?: string; // Optional error field
 }
 
 export async function getUserBooks(): Promise<UserBooksResult> {
@@ -26,14 +22,13 @@ export async function getUserBooks(): Promise<UserBooksResult> {
 
   if (!userId) {
     logger.error("Attempted to fetch books without authentication.");
-     return { inProgressBooks: [], completedBooks: [] };
+     return { inProgressBooks: [], completedBooks: [], error: "User not authenticated" };
   }
 
   logger.info({ userId }, "Fetching books for user library.");
 
   try {
-    // Select necessary fields, including the first page's image URL for thumbnail
-    const books = await prisma.book.findMany({
+    const booksFromDb = await prisma.book.findMany({
       where: { userId: userId },
       select: {
         id: true,
@@ -42,29 +37,57 @@ export async function getUserBooks(): Promise<UserBooksResult> {
         createdAt: true,
         updatedAt: true,
         childName: true,
-        // Remove coverImageUrl if it doesn't exist in schema
-        pages: { // Fetch all scalar fields for the first page
-          // Removed specific select: { generatedImageUrl: true }
-          orderBy: {
-            pageNumber: Prisma.SortOrder.asc // Use Prisma.SortOrder
+        coverAssetId: true, // Ensure coverAssetId is fetched
+        pages: {
+          orderBy: { index: Prisma.SortOrder.asc }, // Order pages by index
+          select: {
+            id: true,
+            originalImageUrl: true,
+            generatedImageUrl: true,
+            assetId: true,
+            index: true,
+            isTitlePage: true,
           },
-          take: 1 
-        }
+        },
       },
-      orderBy: { updatedAt: Prisma.SortOrder.desc }, // Use Prisma.SortOrder
+      orderBy: { updatedAt: Prisma.SortOrder.desc },
     });
 
-    // Map to LibraryBook type, deriving thumbnailUrl
-    const libraryBooks: LibraryBook[] = books.map(book => ({
-      id: book.id,
-      title: book.title,
-      status: book.status,
-      createdAt: book.createdAt,
-      updatedAt: book.updatedAt,
-      childName: book.childName,
-      pages: book.pages, // No need to cast anymore, type matches
-      thumbnailUrl: book.pages?.[0]?.generatedImageUrl || null // Use first page image
-    }));
+    const libraryBooks: LibraryBook[] = booksFromDb.map(book => {
+      let determinedCoverImageUrl: string | null = null;
+      
+      // Find the designated cover page using coverAssetId or fallback to title page/first page
+      const coverPageDetails = book.coverAssetId 
+        ? book.pages.find(p => p.assetId === book.coverAssetId)
+        : book.pages.find(p => p.isTitlePage || p.index === 0);
+
+      if (book.status === BookStatus.COMPLETED) {
+        // For COMPLETED books, prioritize the generated image of the cover page
+        if (coverPageDetails) {
+          determinedCoverImageUrl = coverPageDetails.generatedImageUrl || coverPageDetails.originalImageUrl; // Fallback to original if generated not there
+        } else if (book.pages.length > 0) { // Fallback to first page if no specific cover found
+          determinedCoverImageUrl = book.pages[0].generatedImageUrl || book.pages[0].originalImageUrl;
+        }
+      } else {
+        // For DRAFT, GENERATING, ILLUSTRATING, FAILED, PARTIAL statuses,
+        // use the original image of the cover page
+        if (coverPageDetails) {
+          determinedCoverImageUrl = coverPageDetails.originalImageUrl;
+        } else if (book.pages.length > 0) { // Fallback to first page if no specific cover found
+          determinedCoverImageUrl = book.pages[0].originalImageUrl;
+        }
+      }
+
+      return {
+        id: book.id,
+        title: book.title ?? 'Untitled Book', // Provide a default for null titles
+        status: book.status,
+        createdAt: book.createdAt,
+        updatedAt: book.updatedAt,
+        childName: book.childName,
+        coverImageUrl: determinedCoverImageUrl,
+      };
+    });
 
     const inProgressBooks = libraryBooks.filter(book => book.status !== BookStatus.COMPLETED);
     const completedBooks = libraryBooks.filter(book => book.status === BookStatus.COMPLETED);
@@ -74,7 +97,8 @@ export async function getUserBooks(): Promise<UserBooksResult> {
 
   } catch (error) {
     logger.error({ userId, error }, "Failed to fetch user books.");
-    return { inProgressBooks: [], completedBooks: [] };
+    // It's good practice to return the error structure if defined in UserBooksResult
+    return { inProgressBooks: [], completedBooks: [], error: error instanceof Error ? error.message : "Failed to fetch books" };
   }
 }
 
