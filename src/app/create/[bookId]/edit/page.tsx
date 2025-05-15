@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { Loader2, CheckCircle2, FileText } from 'lucide-react';
+import { Loader2, CheckCircle2, FileText, HelpCircle } from 'lucide-react';
 import { StoryboardPage, BookWithStoryboardPages } from '@/types'; // <-- Import shared types
 import BottomToolbar, { EditorTab } from '@/components/create/editor/BottomToolbar'; // <-- Import Toolbar
 import PhotoSourceSheet from '@/components/create/PhotoSourceSheet'; // <-- Import Sheet for Add Photo
@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/drawer";
 import ArtStylePicker from '@/components/create/editor/ArtStylePicker';
 import CoverEditorPanel from '@/components/create/editor/CoverEditorPanel';
+import DetailsEditorPanel from '@/components/create/editor/DetailsEditorPanel'; // <-- Import new component
 import { Asset } from '@prisma/client'; // Import Asset for filtering
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'; // Import Tooltip
 import WritingProgressScreen from '@/components/create/editor/WritingProgressScreen'; // Import Progress Screen
@@ -67,7 +68,7 @@ export default function EditBookPage() {
   const [isSavingDetails, setIsSavingDetails] = useState(false);
 
   // --- React Joyride State ---
-  const [runTour, setRunTour] = useState(false); // <-- Initialize to false
+  const [runTour, setRunTour] = useState(false); // <-- Initialize to false, tour won't start automatically
   const [tourSteps, setTourSteps] = useState<Step[]>([]);
   // ---------------------------
 
@@ -211,7 +212,7 @@ export default function EditBookPage() {
         },
       ];
       setTourSteps(steps);
-      setRunTour(true); // <-- Set runTour to true here, after steps are defined
+      // setRunTour(true); // <-- REMOVED: Tour will not start automatically anymore
     }
   }, [bookData, isDesktop]); 
 
@@ -229,7 +230,10 @@ export default function EditBookPage() {
     }
     logger.info({ joyrideCallback: data }, "Joyride callback triggered");
   };
-  // ------------------------------------
+
+  const handleHelpClick = () => {
+    setRunTour(true); // Start the tour when help icon is clicked
+  };
 
   const handleTabChange = (tab: EditorTab) => {
     setActiveTab(tab);
@@ -774,50 +778,6 @@ export default function EditBookPage() {
   );
   // -------------------------------------------------------------
 
-  // ---- Helper to render Details Panel Content + Footer (New) ----
-  const DetailsPanelContent = (
-    <>
-      <div className="flex-grow overflow-auto py-4 px-4 space-y-6"> {/* Added more padding and spacing */}
-        {bookData && (
-          <>
-            <div className="space-y-1.5">
-             <Label htmlFor="details-title" className="text-sm font-semibold">Book Title</Label>
-             <Input 
-               id="details-title" 
-               placeholder="e.g., The Magical Adventure" 
-               value={pendingTitle}
-               onChange={(e) => handlePendingTitleChange(e.target.value)} 
-             />
-           </div>
-           <div className="space-y-1.5">
-             <Label htmlFor="details-child-name" className="text-sm font-semibold">Child's Name</Label>
-             <Input 
-               id="details-child-name" 
-               placeholder="e.g., Alex" 
-               value={pendingChildName}
-               onChange={(e) => handlePendingChildNameChange(e.target.value)} 
-             />
-           </div>
-          </>
-        )}
-      </div>
-      <DrawerFooter className="pt-2 flex-row">
-        <Button 
-          onClick={handleSaveDetails} 
-          disabled={isSavingDetails}
-          className="flex-grow"
-        >
-          {isSavingDetails ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-          Done
-        </Button> 
-        <DrawerClose asChild>
-          <Button variant="outline" className="flex-grow" disabled={isSavingDetails}>Cancel</Button>
-        </DrawerClose>
-      </DrawerFooter>
-    </>
-  );
-  // -------------------------------------------------------------
-
   // Main Editor Layout
   return (
     <>
@@ -845,6 +805,18 @@ export default function EditBookPage() {
             <div className="flex-1 flex justify-start">
                  {/* TODO: Back button or Menu? */}
                  {/* Example: <Button variant=\"ghost\" size=\"icon\"><ArrowLeft /></Button> */}
+                 <TooltipProvider delayDuration={100}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button variant="ghost" size="icon" onClick={handleHelpClick} aria-label="Show help tour">
+                          <HelpCircle className="h-12 w-12 text-gray-600 hover:text-[#F76C5E]" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>Show Editor Hints</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
             </div>
             {/* Center Section (Title) - REMOVED */}
             {/* 
@@ -905,14 +877,30 @@ export default function EditBookPage() {
               <Drawer open={isDetailsPanelOpen} onOpenChange={setIsDetailsPanelOpen}>
                 <DrawerContent className="h-full w-[380px] mt-0 fixed left-0 rounded-none border-r"> 
                   <DrawerHeader><DrawerTitle>Book Details</DrawerTitle></DrawerHeader>
-                  {DetailsPanelContent} 
+                  <DetailsEditorPanel 
+                    currentTitle={pendingTitle}
+                    currentChildName={pendingChildName}
+                    onTitleChange={handlePendingTitleChange}
+                    onChildNameChange={handlePendingChildNameChange}
+                    onSave={handleSaveDetails}
+                    onCancel={() => setIsDetailsPanelOpen(false)} // Close panel on cancel
+                    isSaving={isSavingDetails}
+                  />
                 </DrawerContent>
               </Drawer>
             ) : (
               <Sheet open={isDetailsPanelOpen} onOpenChange={setIsDetailsPanelOpen}>
                  <SheetContent side="bottom" className="h-[85vh] flex flex-col"> 
                    <SheetHeader><SheetTitle>Book Details</SheetTitle></SheetHeader>
-                   {DetailsPanelContent} 
+                   <DetailsEditorPanel 
+                    currentTitle={pendingTitle}
+                    currentChildName={pendingChildName}
+                    onTitleChange={handlePendingTitleChange}
+                    onChildNameChange={handlePendingChildNameChange}
+                    onSave={handleSaveDetails}
+                    onCancel={() => setIsDetailsPanelOpen(false)} // Close panel on cancel
+                    isSaving={isSavingDetails}
+                  />
                  </SheetContent>
               </Sheet>
             )
