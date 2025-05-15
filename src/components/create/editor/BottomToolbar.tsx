@@ -3,9 +3,9 @@
 import React from 'react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { BookOpen, LayoutGrid, Image as ImageIcon, Palette, Plus } from 'lucide-react';
+import { BookOpen, LayoutGrid, Image as ImageIcon, Palette, Plus, FileText } from 'lucide-react';
 
-export type EditorTab = 'cover' | 'pages' | 'artStyle';
+export type EditorTab = 'details' | 'cover' | 'pages' | 'artStyle';
 
 interface BottomToolbarProps {
   activeTab: EditorTab;
@@ -13,10 +13,11 @@ interface BottomToolbarProps {
   onAddPhotoClick: () => void;
 }
 
-const tabs: { id: EditorTab; label: string; icon: React.ElementType }[] = [
-  { id: 'cover', label: 'Cover', icon: BookOpen },
-  { id: 'pages', label: 'Pages', icon: LayoutGrid },
-  { id: 'artStyle', label: 'Art Style', icon: Palette },
+const tabs: { id: EditorTab; label: string; icon: React.ElementType, tourId?: string }[] = [
+  { id: 'details', label: 'Details', icon: FileText, tourId: 'details-button' },
+  { id: 'cover', label: 'Cover', icon: BookOpen, tourId: 'cover-button' },
+  { id: 'pages', label: 'Pages', icon: LayoutGrid, tourId: 'pages-button' },
+  { id: 'artStyle', label: 'Art Style', icon: Palette, tourId: 'art-style-button' },
 ];
 
 export function BottomToolbar({
@@ -43,6 +44,7 @@ export function BottomToolbar({
             <Button
               key={tab.id}
               variant="ghost" 
+              data-tourid={tab.tourId}
               onClick={() => onTabChange(tab.id)}
               className={cn(
                 "flex flex-col items-center justify-center flex-1 h-full px-1 text-xs font-medium text-gray-500", // Adjusted padding/height slightly for mobile
@@ -62,6 +64,7 @@ export function BottomToolbar({
         {/* Add Photo Button - Now styled similarly to tabs */}
         <Button
           variant="ghost" 
+          data-tourid="add-photo-button"
           onClick={onAddPhotoClick}
           className={cn(
             "flex flex-col items-center justify-center flex-1 h-full px-1 text-xs font-medium text-gray-500", // Match tab styling for consistency on mobile

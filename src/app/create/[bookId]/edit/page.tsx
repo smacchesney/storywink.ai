@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { Loader2, CheckCircle2 } from 'lucide-react';
+import { Loader2, CheckCircle2, FileText } from 'lucide-react';
 import { StoryboardPage, BookWithStoryboardPages } from '@/types'; // <-- Import shared types
 import BottomToolbar, { EditorTab } from '@/components/create/editor/BottomToolbar'; // <-- Import Toolbar
 import PhotoSourceSheet from '@/components/create/PhotoSourceSheet'; // <-- Import Sheet for Add Photo
@@ -27,6 +27,9 @@ import { Asset } from '@prisma/client'; // Import Asset for filtering
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'; // Import Tooltip
 import WritingProgressScreen from '@/components/create/editor/WritingProgressScreen'; // Import Progress Screen
 import useMediaQuery from '@/hooks/useMediaQuery'; // Import the hook
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
+import Joyride, { Step, ACTIONS, EVENTS, STATUS, CallBackProps } from 'react-joyride'; // <-- Add Joyride imports
 
 export default function EditBookPage() {
   const params = useParams();
@@ -37,7 +40,7 @@ export default function EditBookPage() {
   const [bookData, setBookData] = useState<BookWithStoryboardPages | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<EditorTab>('cover'); // <-- State for active tab
+  const [activeTab, setActiveTab] = useState<EditorTab>('details'); // Default to details
   const [isPhotoSheetOpen, setIsPhotoSheetOpen] = useState(false); // <-- State for Add Photo sheet
   const fileInputRef = useRef<HTMLInputElement>(null); // <-- Need file input ref for adding photos
   const [isPagesPanelOpen, setIsPagesPanelOpen] = useState(false); // Unified state for Sheet/Drawer
@@ -58,6 +61,15 @@ export default function EditBookPage() {
   const [showGenerationProgress, setShowGenerationProgress] = useState(false); // <-- Add state for progress screen visibility
   // Add saved state trackers
   const [isAddingPhoto, setIsAddingPhoto] = useState(false); // Loading state for adding photos
+
+  // States for the new Details Panel
+  const [isDetailsPanelOpen, setIsDetailsPanelOpen] = useState(false); // Changed to false
+  const [isSavingDetails, setIsSavingDetails] = useState(false);
+
+  // --- React Joyride State ---
+  const [runTour, setRunTour] = useState(false); // <-- Initialize to false
+  const [tourSteps, setTourSteps] = useState<Step[]>([]);
+  // ---------------------------
 
   const isMountedRef = useRef(true);
 
@@ -140,8 +152,84 @@ export default function EditBookPage() {
       setIsCoverPanelOpen(false);
       setIsPagesPanelOpen(false);
       setIsArtStylePanelOpen(false);
+      // Ensure tour also closes or adapts if needed for mobile view changes during tour
+      // For now, we are not explicitly handling tour state here, but it's a consideration
     }
   }, [isDesktop]);
+
+  // --- React Joyride step definitions ---
+  useEffect(() => {
+    if (bookData) { 
+      const steps: Step[] = [
+        {
+          target: '[data-tourid="details-button"]',
+          content: "Input Book title and Child's name for the story here.",
+          placement: 'top',
+          isFixed: true,
+          disableScrolling: true,
+          disableBeacon: true,
+        },
+        {
+          target: '[data-tourid="cover-button"]',
+          content: 'Select your front cover photo by clicking here.',
+          placement: 'top',
+          isFixed: true,
+          disableScrolling: true,
+          disableBeacon: true,
+        },
+        {
+          target: '[data-tourid="pages-button"]',
+          content: 'Arrange the order of your photos & story pages in this section.',
+          placement: 'top',
+          isFixed: true,
+          disableScrolling: true,
+          disableBeacon: true,
+        },
+        {
+          target: '[data-tourid="art-style-button"]',
+          content: 'Select art style for the illustration here.',
+          placement: 'top',
+          isFixed: true,
+          disableScrolling: true,
+          disableBeacon: true,
+        },
+        {
+          target: '[data-tourid="add-photo-button"]',
+          content: 'Add additional photos to your storybook using this button.',
+          placement: 'top',
+          isFixed: true,
+          disableScrolling: true,
+          disableBeacon: true,
+        },
+        {
+          target: '[data-tourid="generate-story-button"]',
+          content: 'Once previous steps are done, click this to create your story!',
+          placement: 'bottom',
+          isFixed: true,
+          disableScrolling: true,
+          disableBeacon: true,
+        },
+      ];
+      setTourSteps(steps);
+      setRunTour(true); // <-- Set runTour to true here, after steps are defined
+    }
+  }, [bookData, isDesktop]); 
+
+  const handleJoyrideCallback = (data: CallBackProps) => {
+    const { action, index, status, type } = data;
+
+    if (type === EVENTS.STEP_AFTER || type === EVENTS.TARGET_NOT_FOUND) {
+      // Update the current step index
+      // console.log(`Current step: ${index}, Action: ${action}, Status: ${status}, Type: ${type}`);
+    } else if (status === STATUS.FINISHED || status === STATUS.SKIPPED) {
+      // Need to set our state so the tour is finished
+      setRunTour(false);
+      // Potentially save to localStorage that the user has completed the tour
+      // localStorage.setItem('editorTourCompleted', 'true');
+    }
+    logger.info({ joyrideCallback: data }, "Joyride callback triggered");
+  };
+  // ------------------------------------
 
   const handleTabChange = (tab: EditorTab) => {
     setActiveTab(tab);
@@ -149,16 +237,20 @@ export default function EditBookPage() {
     setIsPagesPanelOpen(tab === 'pages');
     setIsArtStylePanelOpen(tab === 'artStyle');
     setIsCoverPanelOpen(tab === 'cover');
+    setIsDetailsPanelOpen(tab === 'details'); // Control Details panel
     
     // No need to specifically set storyboardOrder here, useEffect handles it
 
     if (tab === 'artStyle') {
       setPendingArtStyle(bookData?.artStyle);
-      setPendingWinkifyEnabled(bookData?.isWinkifyEnabled || false);
+      setPendingWinkifyEnabled(bookData?.isWinkifyEnabled ?? true);
     } else if (tab === 'cover') {
+      // setPendingTitle(bookData?.title || ''); // Moved to details
+      // setPendingChildName(bookData?.childName || ''); // Moved to details
+      setPendingCoverAssetId(bookData?.coverAssetId);
+    } else if (tab === 'details') { // Initialize pending details
       setPendingTitle(bookData?.title || '');
       setPendingChildName(bookData?.childName || '');
-      setPendingCoverAssetId(bookData?.coverAssetId);
     }
     logger.info({ bookId, newTab: tab }, "Editor tab changed");
   };
@@ -287,12 +379,6 @@ export default function EditBookPage() {
   };
 
   // Handlers for pending Cover changes
-  const handlePendingTitleChange = (title: string) => {
-    setPendingTitle(title);
-  };
-  const handlePendingChildNameChange = (name: string) => {
-    setPendingChildName(name);
-  };
   const handlePendingCoverAssetSelect = (assetId: string | null) => {
     setPendingCoverAssetId(assetId);
   };
@@ -301,15 +387,17 @@ export default function EditBookPage() {
   const handleSaveCover = async () => {
     if (!bookData || isSavingCover) return;
     setIsSavingCover(true);
-    logger.info({ bookId, title: pendingTitle, childName: pendingChildName, coverId: pendingCoverAssetId }, "Saving cover details...");
+    // logger.info({ bookId, title: pendingTitle, childName: pendingChildName, coverId: pendingCoverAssetId }, "Saving cover details..."); // Title/ChildName removed
+    logger.info({ bookId, coverId: pendingCoverAssetId }, "Saving cover photo...");
 
     const updatePayload: { title?: string; childName?: string; coverAssetId?: string | null } = {};
-    if (pendingTitle !== bookData.title) updatePayload.title = pendingTitle;
-    if (pendingChildName !== bookData.childName) updatePayload.childName = pendingChildName;
+    // if (pendingTitle !== bookData.title) updatePayload.title = pendingTitle; // Moved to details
+    // if (pendingChildName !== bookData.childName) updatePayload.childName = pendingChildName; // Moved to details
     if (pendingCoverAssetId !== bookData.coverAssetId) updatePayload.coverAssetId = pendingCoverAssetId;
 
     if (Object.keys(updatePayload).length === 0) {
-      logger.info({ bookId }, "No changes detected in cover details.");
+      // logger.info({ bookId }, "No changes detected in cover details."); // Title/ChildName removed
+      logger.info({ bookId }, "No changes detected in cover photo.");
       setIsSavingCover(false);
       setIsCoverPanelOpen(false);
       return; 
@@ -330,8 +418,8 @@ export default function EditBookPage() {
         if (!prevData) return null;
         return { 
             ...prevData, 
-            ...(updatePayload.title !== undefined && { title: updatePayload.title }),
-            ...(updatePayload.childName !== undefined && { childName: updatePayload.childName }),
+            // ...(updatePayload.title !== undefined && { title: updatePayload.title }), // Moved
+            // ...(updatePayload.childName !== undefined && { childName: updatePayload.childName }), // Moved
             ...(updatePayload.coverAssetId !== undefined && { coverAssetId: updatePayload.coverAssetId })
         };
       });
@@ -343,6 +431,59 @@ export default function EditBookPage() {
       toast.error(`Failed to save cover: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setIsSavingCover(false);
+    }
+  };
+
+  // Handlers for pending Detail changes (new)
+  const handlePendingTitleChange = (title: string) => {
+    setPendingTitle(title);
+  };
+  const handlePendingChildNameChange = (name: string) => {
+    setPendingChildName(name);
+  };
+
+  // Handler for saving Details (new)
+  const handleSaveDetails = async () => {
+    if (!bookData || isSavingDetails) return;
+    setIsSavingDetails(true);
+    logger.info({ bookId, title: pendingTitle, childName: pendingChildName }, "Saving book details...");
+
+    const updatePayload: { title?: string; childName?: string; } = {};
+    if (pendingTitle !== bookData.title) updatePayload.title = pendingTitle;
+    if (pendingChildName !== bookData.childName) updatePayload.childName = pendingChildName;
+
+    if (Object.keys(updatePayload).length === 0) {
+      logger.info({ bookId }, "No changes detected in book details.");
+      setIsSavingDetails(false);
+      setIsDetailsPanelOpen(false);
+      return; 
+    }
+
+    try {
+      const response = await fetch(`/api/book/${bookId}`, { 
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatePayload),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || `Failed to save details: ${response.statusText}`);
+
+      setBookData(prevData => {
+        if (!prevData) return null;
+        return { 
+            ...prevData, 
+            ...(updatePayload.title !== undefined && { title: updatePayload.title }),
+            ...(updatePayload.childName !== undefined && { childName: updatePayload.childName }),
+        };
+      });
+         
+       toast.success("Book details saved successfully!");
+       setIsDetailsPanelOpen(false); 
+    } catch (error) {
+      logger.error({ bookId, error }, "Failed to save book details");
+      toast.error(`Failed to save details: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setIsSavingDetails(false);
     }
   };
 
@@ -531,6 +672,7 @@ export default function EditBookPage() {
     switch (activeTab) {
       case 'cover':
       case 'artStyle': 
+      case 'details': // Show canvas for details tab too
         return <Canvas bookData={bookData} />; 
       case 'pages':
         return <Canvas bookData={bookData} />; // Keep showing canvas behind sheet/drawer
@@ -605,13 +747,13 @@ export default function EditBookPage() {
       <div className="flex-grow overflow-auto py-4 px-2">
         {bookData && (
           <CoverEditorPanel
-            allBookAssets={allBookAssets} // <-- Pass all assets
+            allBookAssets={allBookAssets} 
             currentCoverAssetId={pendingCoverAssetId} 
-            currentTitle={pendingTitle} 
-            currentChildName={pendingChildName} 
+            // currentTitle={pendingTitle} // Removed
+            // currentChildName={pendingChildName} // Removed
             onCoverAssetSelect={handlePendingCoverAssetSelect}
-            onTitleChange={handlePendingTitleChange}
-            onChildNameChange={handlePendingChildNameChange}
+            // onTitleChange={handlePendingTitleChange} // Removed
+            // onChildNameChange={handlePendingChildNameChange} // Removed
           />
         )}
       </div>
@@ -626,6 +768,50 @@ export default function EditBookPage() {
         </Button> 
         <DrawerClose asChild>
           <Button variant="outline" className="flex-grow" disabled={isSavingCover}>Cancel</Button>
+        </DrawerClose>
+      </DrawerFooter>
+    </>
+  );
+  // -------------------------------------------------------------
+
+  // ---- Helper to render Details Panel Content + Footer (New) ----
+  const DetailsPanelContent = (
+    <>
+      <div className="flex-grow overflow-auto py-4 px-4 space-y-6"> {/* Added more padding and spacing */}
+        {bookData && (
+          <>
+            <div className="space-y-1.5">
+             <Label htmlFor="details-title" className="text-sm font-semibold">Book Title</Label>
+             <Input 
+               id="details-title" 
+               placeholder="e.g., The Magical Adventure" 
+               value={pendingTitle}
+               onChange={(e) => handlePendingTitleChange(e.target.value)} 
+             />
+           </div>
+           <div className="space-y-1.5">
+             <Label htmlFor="details-child-name" className="text-sm font-semibold">Child's Name</Label>
+             <Input 
+               id="details-child-name" 
+               placeholder="e.g., Alex" 
+               value={pendingChildName}
+               onChange={(e) => handlePendingChildNameChange(e.target.value)} 
+             />
+           </div>
+          </>
+        )}
+      </div>
+      <DrawerFooter className="pt-2 flex-row">
+        <Button 
+          onClick={handleSaveDetails} 
+          disabled={isSavingDetails}
+          className="flex-grow"
+        >
+          {isSavingDetails ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+          Done
+        </Button> 
+        <DrawerClose asChild>
+          <Button variant="outline" className="flex-grow" disabled={isSavingDetails}>Cancel</Button>
         </DrawerClose>
       </DrawerFooter>
     </>
@@ -676,6 +862,7 @@ export default function EditBookPage() {
                        {/* Wrap button in span for Tooltip when disabled */}
                        <span tabIndex={canGenerate ? -1 : 0}>
                           <Button 
+                            data-tourid="generate-story-button" // <-- Added data-tourid for Joyride
                             onClick={handleGenerateStory}
                             disabled={!canGenerate || isGeneratingStory}
                             size="sm" // Smaller button size
@@ -712,19 +899,38 @@ export default function EditBookPage() {
           
           {/* ---- Conditionally Render Panels based on activeTab AND isDesktop ---- */} 
           
+          {/* Details Panel (New) */} 
+          {activeTab === 'details' && (
+            isDesktop ? (
+              <Drawer open={isDetailsPanelOpen} onOpenChange={setIsDetailsPanelOpen}>
+                <DrawerContent className="h-full w-[380px] mt-0 fixed left-0 rounded-none border-r"> 
+                  <DrawerHeader><DrawerTitle>Book Details</DrawerTitle></DrawerHeader>
+                  {DetailsPanelContent} 
+                </DrawerContent>
+              </Drawer>
+            ) : (
+              <Sheet open={isDetailsPanelOpen} onOpenChange={setIsDetailsPanelOpen}>
+                 <SheetContent side="bottom" className="h-[85vh] flex flex-col"> 
+                   <SheetHeader><SheetTitle>Book Details</SheetTitle></SheetHeader>
+                   {DetailsPanelContent} 
+                 </SheetContent>
+              </Sheet>
+            )
+          )}
+
           {/* Cover Panel */} 
           {activeTab === 'cover' && (
             isDesktop ? (
               <Drawer open={isCoverPanelOpen} onOpenChange={setIsCoverPanelOpen}>
                 <DrawerContent className="h-full w-[380px] mt-0 fixed left-0 rounded-none border-r"> 
-                  <DrawerHeader><DrawerTitle>Edit Cover</DrawerTitle></DrawerHeader>
+                  <DrawerHeader><DrawerTitle>Select your front cover</DrawerTitle></DrawerHeader>
                   {CoverPanelContent} 
                 </DrawerContent>
               </Drawer>
             ) : (
               <Sheet open={isCoverPanelOpen} onOpenChange={setIsCoverPanelOpen}>
                  <SheetContent side="bottom" className="h-[85vh] flex flex-col"> 
-                   <SheetHeader><SheetTitle>Edit Cover</SheetTitle></SheetHeader>
+                   <SheetHeader><SheetTitle>Select your front cover</SheetTitle></SheetHeader>
                    {CoverPanelContent} 
                  </SheetContent>
               </Sheet>
@@ -783,6 +989,67 @@ export default function EditBookPage() {
             onChooseFromPhone={triggerAddPhotoUpload}
             onImportFromGooglePhotos={handleImportFromGooglePhotos}
           />
+
+          {/* --- React Joyride Component --- */}
+          {tourSteps.length > 0 && (
+            <Joyride
+              steps={tourSteps}
+              run={runTour}
+              callback={handleJoyrideCallback}
+              continuous
+              showProgress={false}
+              showSkipButton
+              scrollToFirstStep={false}
+              debug={true}
+              locale={{
+                next: 'Next',
+                back: 'Back',
+                skip: 'Skip',
+                last: 'Done',
+                close: 'Close',
+              }}
+              // Styles to match brand color and improve mobile experience
+              styles={{
+                options: {
+                  zIndex: 10000, // Ensure it's above other elements like sheets/drawers
+                  arrowColor: '#FFFFFF',
+                  backgroundColor: '#FFFFFF',
+                  primaryColor: '#F76C5E', // Brand color for buttons/dots
+                  textColor: '#333333',
+                  
+                },
+                tooltip: {
+                  borderRadius: '8px',
+                  fontSize: isDesktop ? 15 : 14,
+                  padding: isDesktop ? 16: 12,
+                },
+                tooltipContainer: {
+                  textAlign: 'left',
+                },
+                buttonNext: {
+                  borderRadius: '4px',
+                  fontSize: isDesktop ? 14 : 13,
+                  padding: '8px 12px',
+                },
+                buttonBack: {
+                  borderRadius: '4px',
+                  fontSize: isDesktop ? 14 : 13,
+                  marginRight: 10,
+                  padding: '8px 12px',
+                },
+                buttonSkip: {
+                  fontSize: isDesktop ? 14 : 13,
+                  color: '#555555',
+                },
+                // For mobile, beacon and spotlight might need adjustments
+                // For now, using disableBeacon on steps.
+                // spotlight: {
+                //   borderRadius: '4px', 
+                // },
+              }}
+            />
+          )}
+          {/* ----------------------------- */}
         </div>
       )}
     </>

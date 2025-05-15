@@ -79,7 +79,6 @@ export default function CreateBookPage() {
 
     if (allAssets.length > 0) {
       const assetIds = allAssets.map(asset => asset.id);
-      toast.info("Creating your book draft...");
       const creationResult = await handleCreateBook(assetIds);
       
       if (creationResult?.bookId) {

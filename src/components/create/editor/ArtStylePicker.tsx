@@ -6,6 +6,8 @@ import { cn } from '@/lib/utils';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Card, CardContent } from '@/components/ui/card';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Info } from 'lucide-react';
 // Use require for CJS module
 const { STYLE_LIBRARY } = require('@/lib/ai/styleLibrary');
 
@@ -67,15 +69,25 @@ export function ArtStylePicker({
       
       {/* Winkify Toggle */}
       <div className="flex items-center justify-between space-x-2 rounded-lg border p-4">
-         <div>
+         <div className="flex items-center space-x-2">
             <Label htmlFor="winkify-mode" className="text-base font-semibold">Winkify ✨</Label>
-            <p className="text-sm text-muted-foreground mt-1">Add playful captions &amp; illustration notes?</p>
+            <TooltipProvider delayDuration={100}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button type="button" className="focus:outline-none">
+                    <Info className="h-4 w-4 text-muted-foreground hover:text-foreground" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Add subtle enhanced effects to actions and things.</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
          </div>
         <Switch 
           id="winkify-mode" 
           checked={isWinkifyEnabled}
           onCheckedChange={onWinkifyChange}
-          // Optional: Add coral color to checked state if desired via data attributes
           className="data-[state=checked]:bg-[#F76C5E]"
         />
       </div>
