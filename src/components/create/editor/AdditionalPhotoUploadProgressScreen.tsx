@@ -4,12 +4,14 @@ import React from 'react';
 // import { Loader2 } from 'lucide-react'; // Remove Loader2
 import { TextShimmerWave } from '@/components/ui/text-shimmer-wave'; // Import TextShimmerWave
 
-interface AdditionalPhotoUploadProgressScreenProps {
-  // This component is simple and doesn't need props for now
-  // It could be extended later if needed (e.g., for custom messages)
-}
+// Remove the empty interface
+// interface AdditionalPhotoUploadProgressScreenProps {
+//   // This component is simple and doesn't need props for now
+//   // It could be extended later if needed (e.g., for custom messages)
+// }
 
-const AdditionalPhotoUploadProgressScreen: React.FC<AdditionalPhotoUploadProgressScreenProps> = () => {
+// Adjust component definition to not use React.FC with an empty interface
+const AdditionalPhotoUploadProgressScreen = () => {
   return (
     // Change background to white, match layout of UploadProgressScreen
     <div className="fixed inset-0 bg-white flex flex-col items-center justify-center z-50">
