@@ -48,7 +48,7 @@ export function CoverEditorPanel({
                                 "hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-offset-2", // Base focus ring styles
                                 isSelected 
                                     ? "border-[#F76C5E] ring-[#F76C5E] ring-offset-1" // Selected: Coral border & ring (focus uses this ring too)
-                                    : "border-gray-200 focus:ring-blue-500" // Not selected: Gray border, blue focus ring
+                                    : "border-gray-200 focus:ring-transparent" // Not selected: Gray border, transparent focus ring
                             )}
                             aria-pressed={isSelected}
                         >

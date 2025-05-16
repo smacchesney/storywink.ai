@@ -7,10 +7,18 @@ type BookWithPages = Book & { pages: Page[] };
 
 // Constants
 const DPI = 300;
-const PAGE_WIDTH_IN = 6.25;
-const PAGE_HEIGHT_IN = 6.25;
-const PAGE_WIDTH_PX = Math.round(PAGE_WIDTH_IN * DPI);
-const PAGE_HEIGHT_PX = Math.round(PAGE_HEIGHT_IN * DPI);
+const PAGE_WIDTH_IN = 6.25; // Trimmed width
+const PAGE_HEIGHT_IN = 6.25; // Trimmed height
+const BLEED_MARGIN_IN = 0.25;
+
+const PAGE_WIDTH_WITH_BLEED_IN = PAGE_WIDTH_IN + 2 * BLEED_MARGIN_IN;
+const PAGE_HEIGHT_WITH_BLEED_IN = PAGE_HEIGHT_IN + 2 * BLEED_MARGIN_IN;
+
+const PAGE_WIDTH_PX_TRIM = Math.round(PAGE_WIDTH_IN * DPI); // Original, for reference if needed
+const PAGE_HEIGHT_PX_TRIM = Math.round(PAGE_HEIGHT_IN * DPI); // Original, for reference if needed
+
+const PAGE_WIDTH_PX = Math.round(PAGE_WIDTH_WITH_BLEED_IN * DPI); // Full size with bleed
+const PAGE_HEIGHT_PX = Math.round(PAGE_HEIGHT_WITH_BLEED_IN * DPI); // Full size with bleed
 
 /**
  * Generates HTML for a single book page.

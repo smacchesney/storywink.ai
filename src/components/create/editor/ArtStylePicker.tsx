@@ -71,7 +71,7 @@ export function ArtStylePicker({
       <div className="flex items-center justify-between space-x-2 rounded-lg border p-4">
          <div className="flex items-center space-x-2">
             <Label htmlFor="winkify-mode" className="text-base font-semibold">Winkify ✨</Label>
-            <TooltipProvider delayDuration={100}>
+            <TooltipProvider delayDuration={0}>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button type="button" className="focus:outline-none">

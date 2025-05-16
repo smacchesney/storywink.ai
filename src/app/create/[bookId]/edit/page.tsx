@@ -27,6 +27,7 @@ import DetailsEditorPanel from '@/components/create/editor/DetailsEditorPanel'; 
 import { Asset } from '@prisma/client'; // Import Asset for filtering
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'; // Import Tooltip
 import WritingProgressScreen from '@/components/create/editor/WritingProgressScreen'; // Import Progress Screen
+import AdditionalPhotoUploadProgressScreen from '@/components/create/editor/AdditionalPhotoUploadProgressScreen'; // <-- Import new progress screen
 import useMediaQuery from '@/hooks/useMediaQuery'; // Import the hook
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -62,6 +63,7 @@ export default function EditBookPage() {
   const [showGenerationProgress, setShowGenerationProgress] = useState(false); // <-- Add state for progress screen visibility
   // Add saved state trackers
   const [isAddingPhoto, setIsAddingPhoto] = useState(false); // Loading state for adding photos
+  const [showPhotoUploadProgress, setShowPhotoUploadProgress] = useState(false); // <-- New state for photo upload progress screen
 
   // States for the new Details Panel
   const [isDetailsPanelOpen, setIsDetailsPanelOpen] = useState(false); // Changed to false
@@ -508,7 +510,7 @@ export default function EditBookPage() {
     if (event.target.files && event.target.files.length > 0) {
        const files = Array.from(event.target.files);
        setIsPhotoSheetOpen(false); 
-       setIsAddingPhoto(true); 
+       setShowPhotoUploadProgress(true); // <-- Show progress screen
        toast.info(`Uploading ${files.length} additional photo(s)...`);
        logger.info({ bookId, fileCount: files.length }, "Additional photo upload initiated");
        
@@ -520,7 +522,7 @@ export default function EditBookPage() {
        } else {
            logger.error("Cannot add photo: bookId is missing in editor page state.");
            toast.error("Cannot add photo: Book ID is missing.");
-           setIsAddingPhoto(false);
+           setShowPhotoUploadProgress(false);
            if (fileInputRef.current) fileInputRef.current.value = ''; 
            return;
        }
@@ -542,7 +544,7 @@ export default function EditBookPage() {
           console.error("Add Photo Upload Error:", error);
           toast.error(`Error adding photos: ${error instanceof Error ? error.message : 'Unknown error'}`);
        } finally {
-          setIsAddingPhoto(false); // Clear loading state
+          setShowPhotoUploadProgress(false); // <-- Hide progress screen
           if (fileInputRef.current) fileInputRef.current.value = ''; 
        }
     }
@@ -787,6 +789,8 @@ export default function EditBookPage() {
           onComplete={handleGenerationComplete}
           onError={handleGenerationError}
         />
+      ) : showPhotoUploadProgress ? ( // <-- Conditionally render photo upload progress
+        <AdditionalPhotoUploadProgressScreen />
       ) : (
         <div className="flex flex-col h-screen bg-gray-100">
           {/* Hidden file input for adding photos later */}
