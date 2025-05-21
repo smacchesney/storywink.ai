@@ -10,6 +10,13 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useAuth } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
 
+interface CarouselImage {
+  original: string;
+  illustrated: string;
+  alt: string;
+  title?: string; // Optional title to display
+}
+
 // Placeholder data for the first carousel (first 3 images for top display)
 const carouselImages = [
   { original: "https://res.cloudinary.com/storywink/image/upload/v1746287470/lwyxy1knvyqvvgch2aor_us7fdd.jpg", illustrated: "https://res.cloudinary.com/storywink/image/upload/v1746287481/page_0_ub5h7f.png", alt: "Anime, Title" },
@@ -25,12 +32,6 @@ const carouselImagesStyle2 = [
   { original: "https://res.cloudinary.com/storywink/image/upload/v1746288816/veqfxfgb4z0nxk9bjiuu_umdhjk.jpg", illustrated: "https://res.cloudinary.com/storywink/image/upload/v1746288819/page_2_xieetj.png", alt: "pg 2" },
   // Keep remaining images if needed for other parts, or trim if only first 3 are used for these carousels
 ];
-
-interface CarouselImage {
-  original: string;
-  illustrated: string;
-  alt: string;
-}
 
 interface CarouselSyncContextType {
   currentIndex: number;
@@ -67,11 +68,7 @@ const SynchronizedCarousels: React.FC<SynchronizedCarouselsProps> = ({ children,
       clearTimeout(timerRef.current);
     }
     timerRef.current = setTimeout(() => {
-      setIsTransitioning(true);
-      setTimeout(() => {
-        setCurrentIndex((prevIndex) => (prevIndex + 1) % totalImages);
-        setIsTransitioning(false);
-      }, 500); // Transition duration
+      setCurrentIndex((prevIndex) => (prevIndex + 1) % totalImages);
     }, interval);
   };
 
@@ -87,12 +84,8 @@ const SynchronizedCarousels: React.FC<SynchronizedCarouselsProps> = ({ children,
   }, [currentIndex, totalImages, interval]);
 
   const handleSetCurrentIndex = (index: number) => {
-    setIsTransitioning(true);
-    setTimeout(() => {
-      setCurrentIndex(index);
-      setIsTransitioning(false);
-      resetTimer();
-    }, 500);
+    setCurrentIndex(index);
+    resetTimer();
   };
   
   if (totalImages === 0) {
@@ -120,54 +113,50 @@ const SynchronizedBeforeAfterPair: React.FC<SynchronizedBeforeAfterPairProps> = 
 
   const currentImagePair = images[currentIndex % images.length]; // Use modulo for safety if lengths differ despite totalImages
 
-  const handlePrev = () => {
-    setCurrentIndex((currentIndex - 1 + totalImages) % totalImages);
-  };
-
-  const handleNext = () => {
-    setCurrentIndex((currentIndex + 1) % totalImages);
-  };
-
   return (
-    <div className={cn("relative w-full max-w-xs mx-auto flex flex-col items-center")}>
+    <div className={cn("relative w-full max-w-md mx-auto flex flex-col items-center")}>
       <div className={cn(
-          "grid grid-cols-2 gap-2 w-full transition-opacity duration-500 ease-in-out",
-          isTransitioning ? "opacity-50" : "opacity-100"
+          "w-full overflow-hidden rounded-2xl shadow-sm bg-[#FFF8E1] relative",
         )}
-        key={`${carouselId}-${currentIndex}`} // Force re-render on index change for transition
+        key={`${carouselId}-${currentIndex}`}
       >
-        <div className="image-container flex flex-col items-center w-full">
-          <div className="aspect-square w-full relative rounded-lg overflow-hidden shadow-md bg-muted">
-            <Image
-              src={currentImagePair.original}
-              alt={`${currentImagePair.alt} - Original`}
-              fill
-              className="object-cover"
-              priority={true}
-            />
+        <div className="flex flex-row w-full">
+          <div className="w-1/2 relative">
+            <div className="aspect-square w-full relative bg-muted">
+              <Image
+                src={currentImagePair.original}
+                alt={`${currentImagePair.alt} - Original`}
+                fill
+                className="object-cover"
+                priority={true}
+              />
+            </div>
           </div>
-        </div>
-        <div className="image-container flex flex-col items-center w-full">
-          <div className="aspect-square w-full relative rounded-lg overflow-hidden shadow-md bg-muted">
-            <Image
-              src={currentImagePair.illustrated}
-              alt={`${currentImagePair.alt} - Illustrated`}
-              fill
-              className="object-cover"
-              priority={true}
-            />
+          <div className="w-1/2 relative">
+            <div className="aspect-square w-full relative bg-muted">
+              <Image
+                src={currentImagePair.illustrated}
+                alt={`${currentImagePair.alt} - Illustrated`}
+                fill
+                className="object-cover"
+                priority={true}
+              />
+            </div>
           </div>
         </div>
       </div>
 
       {showControls && totalImages > 1 && (
-        <div className="flex items-center justify-center mt-2 space-x-1">
+        <div className="flex items-center justify-center mt-2 space-x-1.5">
           {Array.from({ length: totalImages }).map((_, idx) => (
             <button
               key={idx}
+              onClick={() => setCurrentIndex(idx)}
               className={cn(
-                "h-1 w-1 rounded-full",
-                currentIndex === idx ? "bg-[#F76C5E]" : "bg-gray-300 dark:bg-gray-600"
+                "h-[5px] w-[5px] rounded-full transition-colors",
+                currentIndex === idx 
+                  ? "bg-[#FF6B6B]" 
+                  : "bg-[#D9D9D9]"
               )}
               aria-label={`Image ${idx + 1}`}
             />
@@ -183,54 +172,62 @@ export default function Home() {
   const secondCarouselImages = carouselImagesStyle2.slice(0, 3);
   const { isLoaded, isSignedIn } = useAuth();
   const router = useRouter();
+  const [isButtonLoading, setIsButtonLoading] = useState(true);
+
+  // Handle loading state for the button
+  useEffect(() => {
+    if (isLoaded) {
+      setIsButtonLoading(false);
+    }
+  }, [isLoaded]);
 
   const handleCreateStorybookClick = () => {
     if (!isLoaded) {
-      // Optionally, handle loading state, e.g., disable button or show spinner
       return;
     }
 
     if (isSignedIn) {
       router.push("/create");
     } else {
-      // Redirect to Clerk's sign-in page, then to /create after successful sign-in.
-      // You can change to /sign-up if you prefer to send users to sign-up first.
       router.push(`/sign-in?redirect_url=${encodeURIComponent('/create')}`);
     }
   };
 
   return (
     <div className="flex flex-col min-h-screen bg-white dark:bg-gray-900">
-      <main className="flex-grow container mx-auto px-4 py-6 md:py-8 space-y-4 md:space-y-6">
+      <main className="flex-grow container mx-auto px-4 py-6 md:py-8 space-y-6 md:space-y-8">
         <section className="text-center">
-          <h1 className="text-3xl sm:text-4xl md:text-5xl font-bold text-slate-900 dark:text-white mb-2 md:mb-3">
-            Turn Your Photos into Magical Stories
+          <h1 className="text-3xl sm:text-4xl md:text-5xl font-bold text-slate-900 dark:text-white mb-3 md:mb-4 font-sans">
+            Make Your Toddler the Hero of Their Own Picturebook
           </h1>
           
-          <p className="text-base sm:text-lg text-slate-600 dark:text-slate-300 mb-3 max-w-2xl mx-auto">
-            Storywink uses AI to transform your photos into personalized, beautifully illustrated storybooks.
+          <p className="text-base sm:text-lg text-slate-600 dark:text-slate-300 mb-5 max-w-2xl mx-auto font-sans">
+            Upload photos, and let <span style={{ fontFamily: 'Excalifont' }} className="font-bold">Storywin<span className="text-[#F76C5E]">k.ai</span></span> turn everyday adventures into charming stories.
           </p>
           
-          <div className="flex flex-col sm:flex-row justify-center items-center gap-3 mb-4">
+          <div className="flex flex-col sm:flex-row justify-center items-center gap-3 mb-6">
             <Button
               size="lg"
               variant="default"
-              className="w-full sm:w-auto px-8 py-3 md:px-10 md:py-4 text-lg font-semibold bg-[#F76C5E] text-white hover:bg-[#F76C5E]/90 transition-colors"
+              className="w-full sm:w-auto px-8 py-3 md:px-10 md:py-4 text-lg md:text-xl bg-[#F76C5E] text-white hover:bg-[#F76C5E]/90 transition-colors rounded-full"
               onClick={handleCreateStorybookClick}
               disabled={!isLoaded}
+              style={{ fontFamily: 'Excalifont' }}
             >
-              {isLoaded ? "Create Your Storybook" : "Loading..."}
+              {isButtonLoading ? "Loading..." : "✨ Create Your Storybook"}
             </Button>
           </div>
           
-          <SynchronizedCarousels imageSets={[firstCarouselImages, secondCarouselImages]} interval={4000}>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
-              <SynchronizedBeforeAfterPair images={firstCarouselImages} showControls={true} carouselId="carousel1" />
-              <SynchronizedBeforeAfterPair images={secondCarouselImages} carouselId="carousel2" />
-            </div>
-          </SynchronizedCarousels>
+          <div className="mb-2 mt-3">
+            <SynchronizedCarousels imageSets={[firstCarouselImages, secondCarouselImages]} interval={4000}>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8 items-start">
+                <SynchronizedBeforeAfterPair images={firstCarouselImages} showControls={false} carouselId="carousel1" />
+                <SynchronizedBeforeAfterPair images={secondCarouselImages} carouselId="carousel2" />
+              </div>
+            </SynchronizedCarousels>
+          </div>
           
-          <StatsCounter count={1234} text="stories created" className="mt-3 text-sm" />
+          <StatsCounter count={1234} text="stories created" className="mt-5 text-sm font-sans text-slate-500" />
         </section>
       </main>
     </div>

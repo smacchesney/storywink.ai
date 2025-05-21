@@ -72,7 +72,7 @@ export function createIllustrationPrompt(
   const base = [
     `Task: Apply the artistic style from the second input image (Style Reference) to the content of the first input image (Content Source).`,
     `Content Source (Image 1): Use this image EXCLUSIVELY for all content elements: characters, objects, faces, poses, and the overall background layout. Preserve these content elements and their composition exactly as they appear in Image 1. Do not add, remove, or significantly alter any content from Image 1.`,
-    `Style Source (Image 2): Use this image PURELY as the visual reference for the artistic style. Apply its color palette, texture, line work, shading, rendering techniques, and overall aesthetic faithfully to the content derived from Image 1. The style should ONLY come from Image 2.${styleDescription ? ` Specific Style Notes: ${styleDescription}` : ''}`,
+    `Style Source (Image 2): Use this image PURELY as the visual reference for the artistic style. Apply its color palette, texture, line work, shading, rendering techniques, and overall aesthetic faithfully to the content derived from Image 1. DO NOT ADD COMPOSITION ELEMENTS FROM IMAGE 2. The style should ONLY come from Image 2.${styleDescription ? ` Specific Style Notes: ${styleDescription}` : ''}`,
   ];
 
   // Winkify specific instructions (added only if enabled and notes exist)
