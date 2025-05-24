@@ -59,26 +59,15 @@ const PageCard = ({
 
   return (
     <div className="page-card flex-1 flex flex-col p-4 bg-white rounded-md shadow-sm overflow-hidden">
-      {/* Page Label and Edit Button */}
-      <div className="flex justify-between items-center mb-2">
-        <h3 className="text-sm font-medium text-gray-500">
+      {/* Page Label - Centered above image */}
+      <div className="text-center mb-3">
+        <h3 className="text-sm font-medium text-[#F76C5E]">
           {isTitlePage ? 'Title Page' : `Page ${pageNumber}`}
         </h3>
-        {!isEditing && !isSaving && (
-          <Button 
-            size="sm" 
-            variant="ghost" 
-            onClick={() => setIsEditing(true)}
-            disabled={isSaving || isEditing}
-            className="h-8 px-2"
-          >
-            <Pencil className="h-4 w-4 mr-1" /> Edit
-          </Button>
-        )}
       </div>
 
-      {/* Image Container - Reduced height */}
-      <div className="image-container h-[35vh] relative bg-muted rounded-md mb-2">
+      {/* Image Container */}
+      <div className="image-container h-[35vh] relative bg-muted rounded-md mb-4">
         {imageUrl ? (
           <Image 
             src={imageUrl}
@@ -104,12 +93,23 @@ const PageCard = ({
         )}
       </div>
       
-      {/* Confirm Button - Moved above text area */}
+      {/* Action Buttons Row - Edit and Confirm buttons side by side */}
       {!isEditing && (
-        <div className="sticky top-[60px] z-10 py-1 bg-white mb-2">
+        <div className="flex gap-2 mb-3">
+          <Button 
+            variant="ghost" 
+            onClick={() => setIsEditing(true)}
+            disabled={isSaving || isEditing}
+            className="px-3 text-gray-600 hover:bg-gray-100"
+          >
+            <Pencil className="h-4 w-4 mr-1" /> Edit
+          </Button>
           <Button
-            className="w-full"
-            variant={isConfirmed ? "outline" : "default"}
+            className={`flex-1 text-white ${
+              isConfirmed 
+                ? 'bg-green-600 hover:bg-green-700' 
+                : 'bg-[#F76C5E] hover:bg-[#F76C5E]/90'
+            }`}
             onClick={onConfirm}
             disabled={isSaving}
           >
@@ -130,7 +130,7 @@ const PageCard = ({
         </div>
       )}
       
-      {/* Text Area - Now below confirm button */}
+      {/* Text Area */}
       <div className="text-editor flex-1">
         {isEditing ? (
           <>
@@ -166,18 +166,22 @@ const PageCard = ({
               </Button>
               <Button 
                 onClick={handleSaveText}
-                className="flex-1"
+                className="flex-1 bg-[#F76C5E] hover:bg-[#F76C5E]/90 text-white"
               >
                 Save Changes
               </Button>
             </div>
           </>
         ) : isTitlePage ? (
-          <div className={`text-content p-3 min-h-[40px] border rounded-md text-center font-semibold text-lg ${isConfirmed ? 'bg-green-50 border-green-200' : 'bg-white'}`}>
+          <div className={`text-content p-3 min-h-[40px] border rounded-md text-center font-semibold text-lg ${
+            isConfirmed ? 'bg-green-50 border-green-200' : 'bg-white'
+          }`}>
             {text || "Enter a title for your book"}
           </div>
         ) : (
-          <div className={`text-content p-3 max-h-[35vh] overflow-y-auto border rounded-md ${isConfirmed ? 'bg-green-50 border-green-200' : 'bg-white'}`}>
+          <div className={`text-content p-3 max-h-[35vh] overflow-y-auto border rounded-md ${
+            isConfirmed ? 'bg-green-50 border-green-200' : 'bg-white'
+          }`}>
             {text || "No text yet."}
           </div>
         )}

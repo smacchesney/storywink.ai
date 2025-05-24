@@ -71,14 +71,21 @@ export function ArtStylePicker({
       <div className="flex items-center justify-between space-x-2 rounded-lg border p-4">
          <div className="flex items-center space-x-2">
             <Label htmlFor="winkify-mode" className="text-base font-semibold">Winkify ✨</Label>
-            <TooltipProvider delayDuration={0}>
+            <TooltipProvider delayDuration={300}>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <button type="button" className="focus:outline-none">
+                  <button 
+                    type="button" 
+                    className="focus:outline-none touch-manipulation"
+                    onTouchStart={(e) => {
+                      // Prevent default to ensure tooltip shows on mobile
+                      e.preventDefault();
+                    }}
+                  >
                     <Info className="h-4 w-4 text-muted-foreground hover:text-foreground" />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent>
+                <TooltipContent side="top" className="max-w-xs text-center">
                   <p>Add subtle enhanced effects to actions and things.</p>
                 </TooltipContent>
               </Tooltip>

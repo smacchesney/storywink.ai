@@ -67,7 +67,7 @@ export async function POST(req: NextRequest) {
           status: BookStatus.DRAFT,
           pageLength: assetIds.length, // Set page length based on provided assets
           // Other fields like artStyle will be set later in the editor
-          isWinkifyEnabled: false, // Default
+          isWinkifyEnabled: true, // Default to enabled
         },
       });
       logger.info({ clerkId, dbUserId: dbUser.id, bookId: book.id }, 'API: Book record created within transaction.');

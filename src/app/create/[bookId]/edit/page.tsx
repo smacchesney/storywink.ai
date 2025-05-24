@@ -32,6 +32,7 @@ import useMediaQuery from '@/hooks/useMediaQuery'; // Import the hook
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import Joyride, { Step, ACTIONS, EVENTS, STATUS, CallBackProps } from 'react-joyride'; // <-- Add Joyride imports
+import { cn } from '@/lib/utils';
 
 export default function EditBookPage() {
   const params = useParams();
@@ -68,6 +69,11 @@ export default function EditBookPage() {
   // States for the new Details Panel
   const [isDetailsPanelOpen, setIsDetailsPanelOpen] = useState(false); // Changed to false
   const [isSavingDetails, setIsSavingDetails] = useState(false);
+
+  // --- Step Completion Tracking ---
+  const [completedSteps, setCompletedSteps] = useState<Set<EditorTab>>(new Set());
+  const [pagesResetKey, setPagesResetKey] = useState(0); // Key to track when pages are added/changed
+  const [pagesConfirmed, setPagesConfirmed] = useState(false); // Track if user has confirmed page order
 
   // --- React Joyride State ---
   const [runTour, setRunTour] = useState(false); // <-- Initialize to false, tour won't start automatically
@@ -302,14 +308,14 @@ export default function EditBookPage() {
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || `Failed to save page order: ${response.statusText}`);
        
-       // 5. Update main bookData state with the correctly indexed full page list
+       // Update main bookData state
        setBookData(prevData => prevData ? { 
            ...prevData, 
            pages: finalOrderedPages // Update with the full list that includes cover at index 0
          } : null);
          
-       toast.success("Page order saved successfully!");
        setIsPagesPanelOpen(false); // Close panel
+       setPagesConfirmed(true); // Mark pages as confirmed by user
     } catch (error) {
         logger.error({ bookId, error }, "Failed to save storyboard order");
         toast.error(`Failed to save page order: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -373,7 +379,6 @@ export default function EditBookPage() {
         };
       });
          
-       toast.success("Art style saved successfully!");
        setIsArtStylePanelOpen(false); // Close panel on success
 
     } catch (error) {
@@ -430,7 +435,12 @@ export default function EditBookPage() {
         };
       });
          
-       toast.success("Cover details saved successfully!");
+       // Reset completion tracking when cover changes (affects page organization)
+       if (updatePayload.coverAssetId !== undefined) {
+         setPagesResetKey(prev => prev + 1);
+         setPagesConfirmed(false); // Reset pages confirmation when cover changes
+       }
+         
        setIsCoverPanelOpen(false); // Close panel on success
     } catch (error) {
       logger.error({ bookId, error }, "Failed to save cover details");
@@ -483,8 +493,7 @@ export default function EditBookPage() {
         };
       });
          
-       toast.success("Book details saved successfully!");
-       setIsDetailsPanelOpen(false); 
+       setIsDetailsPanelOpen(false);
     } catch (error) {
       logger.error({ bookId, error }, "Failed to save book details");
       toast.error(`Failed to save details: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -502,7 +511,9 @@ export default function EditBookPage() {
 
   const handleAddPhotoUploadComplete = () => {
      logger.info({ bookId }, "Additional photos uploaded, refetching book data.");
-     toast.success("New photos added successfully!");
+     // Reset completion states when new photos are added
+     setPagesResetKey(prev => prev + 1);
+     setPagesConfirmed(false); // Reset pages confirmation when new photos are added
      fetchBookData(); // <-- Now defined above
   };
 
@@ -643,6 +654,52 @@ export default function EditBookPage() {
       toast.error(errorMsg || "Story generation failed or timed out.");
   };
 
+  // --- Step Completion Tracking Logic ---
+  // This system tracks which editor steps have been completed to provide visual feedback
+  // to users about their progress through the book creation workflow.
+  useEffect(() => {
+    if (!bookData) return;
+
+    const newCompletedSteps = new Set<EditorTab>();
+
+    // Details: completed if both title and childName are set
+    if (bookData.title && bookData.title.trim() && bookData.childName && bookData.childName.trim()) {
+      newCompletedSteps.add('details');
+    }
+
+    // Cover: completed if coverAssetId is set
+    if (bookData.coverAssetId) {
+      newCompletedSteps.add('cover');
+    }
+
+    // Pages: completed if there's a cover set AND there are remaining pages for the story AND user has confirmed the order
+    if (bookData.coverAssetId && pagesConfirmed) {
+      const nonCoverPages = bookData.pages.filter(page => page.assetId !== bookData.coverAssetId);
+      if (nonCoverPages.length > 0) {
+        newCompletedSteps.add('pages');
+      }
+    }
+
+    // Art Style: completed if artStyle is set
+    if (bookData.artStyle) {
+      newCompletedSteps.add('artStyle');
+    }
+
+    setCompletedSteps(newCompletedSteps);
+  }, [bookData, pagesResetKey, pagesConfirmed]);
+
+  // Reset completion tracking when significant changes occur
+  // The pagesResetKey is incremented when:
+  // - New photos are added (handleAddPhotoUploadComplete)
+  // - Pages are reordered (after save completes)
+  // - Cover is changed (may affect page organization)
+  // When pagesResetKey changes, pagesConfirmed is also reset to false
+  useEffect(() => {
+    // This effect triggers re-evaluation of completion status
+    // whenever pagesResetKey changes, ensuring users review steps
+    // after structural changes to their book
+  }, [pagesResetKey]);
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -704,7 +761,7 @@ export default function EditBookPage() {
         <Button 
           onClick={handleSaveStoryboardOrder} 
           disabled={isSavingOrder}
-          className="flex-grow"
+          className="flex-grow bg-[#F76C5E] hover:bg-[#F76C5E]/90 text-white"
         >
           {isSavingOrder ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
           Done
@@ -734,7 +791,7 @@ export default function EditBookPage() {
         <Button 
           onClick={handleSaveArtStyle} 
           disabled={isSavingArtStyle}
-          className="flex-grow"
+          className="flex-grow bg-[#F76C5E] hover:bg-[#F76C5E]/90 text-white"
         >
           {isSavingArtStyle ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
           Done
@@ -767,7 +824,7 @@ export default function EditBookPage() {
         <Button 
           onClick={handleSaveCover} 
           disabled={isSavingCover}
-          className="flex-grow"
+          className="flex-grow bg-[#F76C5E] hover:bg-[#F76C5E]/90 text-white"
         >
           {isSavingCover ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
           Done
@@ -842,11 +899,18 @@ export default function EditBookPage() {
                             onClick={handleGenerateStory}
                             disabled={!canGenerate || isGeneratingStory}
                             size="sm" // Smaller button size
-                            className="bg-[#F76C5E] text-white hover:bg-[#F76C5E]/90 disabled:opacity-50"
+                            className={cn(
+                              "transition-colors duration-200",
+                              canGenerate && !isGeneratingStory
+                                ? "bg-[#F76C5E] text-white hover:bg-[#F76C5E]/90"
+                                : "bg-gray-400 text-white cursor-not-allowed hover:bg-gray-400"
+                            )}
                           >
                             {isGeneratingStory ? (
                               <Loader2 className="mr-2 h-4 w-4 animate-spin" /> 
-                            ) : null}
+                            ) : (
+                              <CheckCircle2 className="h-4 w-4 mr-1" />
+                            )}
                             Generate Story
                           </Button>
                        </span>
@@ -871,6 +935,7 @@ export default function EditBookPage() {
             activeTab={activeTab}
             onTabChange={handleTabChange}
             onAddPhotoClick={handleAddPhotoClick}
+            completedSteps={completedSteps}
           />
           
           {/* ---- Conditionally Render Panels based on activeTab AND isDesktop ---- */} 

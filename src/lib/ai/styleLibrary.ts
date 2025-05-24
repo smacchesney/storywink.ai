@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-var-requires */
+ 
 // Using CommonJS syntax as this file is required by workers run via ts-node
 
 // Import logger (assuming relative path works, adjust if needed)

@@ -54,7 +54,7 @@ export function DetailsEditorPanel({
         <Button
           onClick={onSave}
           disabled={isSaving}
-          className="flex-grow"
+          className="flex-grow bg-[#F76C5E] hover:bg-[#F76C5E]/90 text-white"
         >
           {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
           Done

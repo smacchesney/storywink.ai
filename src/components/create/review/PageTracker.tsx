@@ -1,6 +1,7 @@
 import React from 'react';
 import { Button } from '@/components/ui/button';
 import { BookOpen, CheckCircle, SparklesIcon } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 interface PageTrackerProps {
   totalPages: number;
@@ -44,7 +45,7 @@ const PageTracker = ({
                     ${isCurrent ? 'w-6' : 'w-2'} 
                     rounded-full
                     ${isCurrent ? 'scale-y-150' : ''}
-                    ${isConfirmed ? 'bg-[#F76C5E]' : 'bg-gray-300'}
+                    ${isConfirmed ? 'bg-green-500' : 'bg-gray-300'}
                   `}
                   aria-label={`Go to page ${idx + 1}`}
                 />
@@ -64,13 +65,12 @@ const PageTracker = ({
           onClick={onIllustrate}
           disabled={!allPagesConfirmed || isProcessing}
           size="sm"
-          className={`ml-2 transition-all duration-300 whitespace-nowrap ${
-            isProcessing 
-              ? 'opacity-70' 
-              : allPagesConfirmed 
-                ? 'bg-[#F76C5E] hover:bg-[#F76C5E]/90 animate-pulse' 
-                : 'bg-gray-300 text-gray-600 cursor-not-allowed hover:bg-gray-300'
-          }`}
+          className={cn(
+            "ml-2 transition-colors duration-200 whitespace-nowrap",
+            allPagesConfirmed && !isProcessing
+              ? "bg-[#F76C5E] text-white hover:bg-[#F76C5E]/90"
+              : "bg-gray-400 text-white cursor-not-allowed hover:bg-gray-400"
+          )}
         >
           {isProcessing ? (
             <>Working...</>

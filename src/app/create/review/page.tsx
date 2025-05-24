@@ -443,7 +443,8 @@ function ReviewPageContent() {
         copy[currentIndex] = true; 
         return copy;
       });
-      toast.success(currentIndex === 0 ? "Title page saved and confirmed!" : `Page ${currentIndex} saved and confirmed!`);
+      // Removed toast notification when page is confirmed
+      // toast.success(currentIndex === 0 ? "Title page saved and confirmed!" : `Page ${currentIndex} saved and confirmed!`);
 
       // Auto-advance to next page after confirmation if not on last page
       if (currentIndex < pages.length - 1) {
@@ -598,7 +599,7 @@ function ReviewPageContent() {
           id={currentPageData?.id}
           imageUrl={currentPageData?.generatedImageUrl || currentPageData?.originalImageUrl}
           text={isTitlePageSelected ? pendingTitleReview : currentPageData?.text}
-          pageNumber={currentPageData?.pageNumber || currentIndex}
+          pageNumber={isTitlePageSelected ? 0 : currentIndex}
           isTitlePage={isTitlePageSelected}
           isConfirmed={confirmed[currentIndex]}
           moderationStatus={currentPageData?.moderationStatus}
