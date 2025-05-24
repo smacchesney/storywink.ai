@@ -1,10 +1,9 @@
 import { NextResponse } from 'next/server';
 import { v2 as cloudinary } from 'cloudinary';
 import { db as prisma } from '@/lib/db'; // Import shared instance as prisma for less code change
-import { auth, currentUser } from '@clerk/nextjs/server'; // Correct import for server-side
 import logger from '@/lib/logger';
 import { PageType } from '@prisma/client'; // Import PageType
-import { ensureUser } from '@/lib/db/ensureUser'; // <-- Import ensureUser
+import { getAuthenticatedUser } from '@/lib/db/ensureUser'; // Import the new helper
 
 // --- DEBUG: Log environment variables before configuration ---
 console.log("--- Cloudinary Env Vars Check ---");
@@ -41,38 +40,11 @@ export async function POST(request: Request) {
     // Log the full URL - REMEMBER TO REDACT PASSWORD IF SHARING LOGS
     console.log('>>> DEBUG: Actual DATABASE_URL:', process.env.DATABASE_URL); 
     
-    const { userId: clerkIdFromAuth } = await auth(); // Correctly await and destructure
-    const user = await currentUser();
-    console.log(">>> DEBUG: Authenticated userId for upload:", clerkIdFromAuth); 
-
-    if (!clerkIdFromAuth || !user) { // Check both IDs from auth() and the user object
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    // It's good practice to ensure the ID from auth() matches the ID from currentUser()
-    if (clerkIdFromAuth !== user.id) {
-        logger.error({ authUserId: clerkIdFromAuth, currentUserId: user.id }, "Mismatched Clerk user IDs from auth() and currentUser().");
-        return NextResponse.json({ error: 'User ID mismatch' }, { status: 401 });
-    }
-
-    // Extract primary email address
-    const primaryEmail = user.emailAddresses.find(email => email.id === user.primaryEmailAddressId)?.emailAddress;
-
-    if (!primaryEmail) {
-        logger.error({ clerkUserId: user.id }, "Primary email not found for Clerk user during upload.");
-        return NextResponse.json({ error: 'User primary email not found. Please ensure your Clerk user has a primary email.' }, { status: 400 });
-    }
-
     try {
-        // --- Ensure User Exists in DB using the new utility ---
-        await ensureUser({
-            id: user.id, // This is the Clerk ID
-            email: primaryEmail,
-            name: user.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : null,
-            imageUrl: user.imageUrl,
-        });
-        logger.info({ clerkUserId: user.id, email: primaryEmail }, "User upsert via ensureUser completed in upload route.");
-        // --- End Ensure User ---
+        // Use the new helper to get authenticated user data
+        const { clerkId, dbUser, primaryEmail } = await getAuthenticatedUser();
+        console.log(">>> DEBUG: Authenticated userId for upload:", clerkId);
+        logger.info({ clerkUserId: clerkId, dbUserId: dbUser.id, email: primaryEmail }, "User authentication completed in upload route.");
 
         const formData = await request.formData();
         const files = formData.getAll('files') as File[];
@@ -87,9 +59,9 @@ export async function POST(request: Request) {
         
         // If bookId provided, fetch initial page count for indexing
         if (bookId) {
-           // Verify user owns the book first
+           // Verify user owns the book first - use dbUser.id for database queries
            const book = await prisma.book.findUnique({
-               where: { id: bookId, userId: clerkIdFromAuth },
+               where: { id: bookId, userId: dbUser.id },
                select: { _count: { select: { pages: true } } } // Efficiently get page count
            });
            if (!book) {
@@ -115,7 +87,7 @@ export async function POST(request: Request) {
 
             // --- Upload to Cloudinary ---
             const cloudinaryResult = await uploadToCloudinary(buffer, {
-                folder: `user_${clerkIdFromAuth}/uploads`, // Organize uploads by user
+                folder: `user_${dbUser.id}/uploads`, // Use database user ID for consistency
             });
 
             if (!cloudinaryResult || !cloudinaryResult.secure_url) {
@@ -139,10 +111,10 @@ export async function POST(request: Request) {
 
             // --- Transaction: Create Asset AND potentially Page --- 
             const createdData = await prisma.$transaction(async (tx) => {
-                // Create Asset
+                // Create Asset - use dbUser.id instead of clerkId
                 const newAsset = await tx.asset.create({
                     data: {
-                        userId: clerkIdFromAuth,
+                        userId: dbUser.id, // Use database user ID, not Clerk ID
                         publicId: cloudinaryResult.public_id, 
                         url: cloudinaryResult.secure_url,       
                         thumbnailUrl: cloudinary.url(cloudinaryResult.public_id, {
@@ -184,6 +156,17 @@ export async function POST(request: Request) {
         return NextResponse.json({ assets: uploadedAssets }, { status: 201 });
 
     } catch (error) {
+        // Handle authentication errors specifically
+        if (error instanceof Error && (
+            error.message.includes('not authenticated') ||
+            error.message.includes('ID mismatch') ||
+            error.message.includes('primary email not found')
+        )) {
+            console.error('Authentication error in upload:', error.message);
+            return NextResponse.json({ error: 'Unauthorized', details: error.message }, { status: 401 });
+        }
+        
+        // Handle other errors
         console.error('Upload API Error:', error);
         const message = error instanceof Error ? error.message : 'Internal Server Error';
         return NextResponse.json({ error: 'File upload failed', details: message }, { status: 500 });

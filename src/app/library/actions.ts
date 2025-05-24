@@ -1,6 +1,6 @@
 "use server"; // Mark this file as containing Server Actions
 
-import { auth } from "@clerk/nextjs/server";
+import { getAuthenticatedUser } from '@/lib/db/ensureUser';
 import { db as prisma } from "@/lib/db"; // Use named import
 import { Prisma, Book, BookStatus, Page } from "@prisma/client"; // Use @prisma/client directly
 import { revalidatePath } from 'next/cache'; // Import for revalidation
@@ -18,18 +18,13 @@ export interface UserBooksResult {
 
 export async function getUserBooks(): Promise<UserBooksResult> {
   const logger = (await import('@/lib/logger')).default;
-  const { userId } = await auth();
-
-  if (!userId) {
-    logger.error("Attempted to fetch books without authentication.");
-     return { inProgressBooks: [], completedBooks: [], error: "User not authenticated" };
-  }
-
-  logger.info({ userId }, "Fetching books for user library.");
-
+  
   try {
+    const { dbUser, clerkId } = await getAuthenticatedUser();
+    logger.info({ clerkId, dbUserId: dbUser.id }, "Fetching books for user library.");
+
     const booksFromDb = await prisma.book.findMany({
-      where: { userId: userId },
+      where: { userId: dbUser.id }, // Use database user ID, not Clerk ID
       select: {
         id: true,
         title: true,
@@ -92,38 +87,42 @@ export async function getUserBooks(): Promise<UserBooksResult> {
     const inProgressBooks = libraryBooks.filter(book => book.status !== BookStatus.COMPLETED);
     const completedBooks = libraryBooks.filter(book => book.status === BookStatus.COMPLETED);
 
-    logger.info({ userId, inProgressCount: inProgressBooks.length, completedCount: completedBooks.length }, "Successfully fetched user books.");
+    logger.info({ clerkId, dbUserId: dbUser.id, inProgressCount: inProgressBooks.length, completedCount: completedBooks.length }, "Successfully fetched user books.");
     return { inProgressBooks, completedBooks };
 
   } catch (error) {
-    logger.error({ userId, error }, "Failed to fetch user books.");
-    // It's good practice to return the error structure if defined in UserBooksResult
+    // Handle authentication errors
+    if (error instanceof Error && (
+      error.message.includes('not authenticated') ||
+      error.message.includes('ID mismatch') ||
+      error.message.includes('primary email not found')
+    )) {
+      return { inProgressBooks: [], completedBooks: [], error: "User not authenticated" };
+    }
+
+    const logger = (await import('@/lib/logger')).default;
+    logger.error({ error }, "Failed to fetch user books.");
     return { inProgressBooks: [], completedBooks: [], error: error instanceof Error ? error.message : "Failed to fetch books" };
   }
 }
 
 export async function deleteBook(bookId: string): Promise<{ success: boolean; message?: string }> {
   const logger = (await import('@/lib/logger')).default;
-  const { userId } = await auth();
-
-  if (!userId) {
-    logger.error({ bookId }, "Attempted to delete book without authentication.");
-    return { success: false, message: "Authentication required." };
-  }
-
-  logger.info({ userId, bookId }, "Attempting to delete book.");
-
+  
   try {
+    const { dbUser, clerkId } = await getAuthenticatedUser();
+    logger.info({ clerkId, dbUserId: dbUser.id, bookId }, "Attempting to delete book.");
+
     const book = await prisma.book.findUnique({
       where: {
         id: bookId,
-        userId: userId,
+        userId: dbUser.id, // Use database user ID, not Clerk ID
       },
       select: { id: true }, 
     });
 
     if (!book) {
-      logger.warn({ userId, bookId }, "Attempted to delete non-existent or unauthorized book.");
+      logger.warn({ clerkId, dbUserId: dbUser.id, bookId }, "Attempted to delete non-existent or unauthorized book.");
       return { success: false, message: "Book not found or access denied." };
     }
 
@@ -133,33 +132,37 @@ export async function deleteBook(bookId: string): Promise<{ success: boolean; me
       },
     });
 
-    logger.info({ userId, bookId }, "Successfully deleted book.");
+    logger.info({ clerkId, dbUserId: dbUser.id, bookId }, "Successfully deleted book.");
     revalidatePath('/library');
     return { success: true };
 
   } catch (error) {
-    logger.error({ userId, bookId, error }, "Failed to delete book.");
+    // Handle authentication errors
+    if (error instanceof Error && (
+      error.message.includes('not authenticated') ||
+      error.message.includes('ID mismatch') ||
+      error.message.includes('primary email not found')
+    )) {
+      return { success: false, message: "Authentication required." };
+    }
+
+    const logger = (await import('@/lib/logger')).default;
+    logger.error({ bookId, error }, "Failed to delete book.");
     return { success: false, message: "Failed to delete book. Please try again." };
   }
 }
 
-export async function duplicateBook(bookId: string): Promise<{ success: boolean; message?: string, newBookId?: string }>
-{
+export async function duplicateBook(bookId: string): Promise<{ success: boolean; message?: string, newBookId?: string }> {
   const logger = (await import('@/lib/logger')).default;
-  const { userId } = await auth();
-
-  if (!userId) {
-    logger.error({ bookId }, "Attempted to duplicate book without authentication.");
-    return { success: false, message: "Authentication required." };
-  }
-
-  logger.info({ userId, bookId }, "Attempting to duplicate book.");
-
+  
   try {
+    const { dbUser, clerkId } = await getAuthenticatedUser();
+    logger.info({ clerkId, dbUserId: dbUser.id, bookId }, "Attempting to duplicate book.");
+
     const originalBook = await prisma.book.findUnique({
       where: {
         id: bookId,
-        userId: userId,
+        userId: dbUser.id, // Use database user ID, not Clerk ID
       },
       // Select only fields needed for duplication
       select: {
@@ -183,7 +186,7 @@ export async function duplicateBook(bookId: string): Promise<{ success: boolean;
     });
 
     if (!originalBook) {
-      logger.warn({ userId, bookId }, "Attempted to duplicate non-existent or unauthorized book.");
+      logger.warn({ clerkId, dbUserId: dbUser.id, bookId }, "Attempted to duplicate non-existent or unauthorized book.");
       return { success: false, message: "Book not found or access denied." };
     }
 
@@ -199,20 +202,29 @@ export async function duplicateBook(bookId: string): Promise<{ success: boolean;
         keyCharacters: originalBook.keyCharacters,
         specialObjects: originalBook.specialObjects,
         excitementElement: originalBook.excitementElement,
-        userId: originalBook.userId,
+        userId: dbUser.id, // Use database user ID, not original book's userId
         status: BookStatus.DRAFT, 
       },
       select: { id: true } // Only need the new ID
     });
 
-    logger.info({ userId, originalBookId: bookId, newBookId: newBookRecord.id }, "Successfully duplicated book.");
+    logger.info({ clerkId, dbUserId: dbUser.id, originalBookId: bookId, newBookId: newBookRecord.id }, "Successfully duplicated book.");
     revalidatePath('/library');
 
-    // Return only the ID, not the full object
     return { success: true, newBookId: newBookRecord.id };
 
   } catch (error) {
-    logger.error({ userId, bookId, error }, "Failed to duplicate book.");
+    // Handle authentication errors
+    if (error instanceof Error && (
+      error.message.includes('not authenticated') ||
+      error.message.includes('ID mismatch') ||
+      error.message.includes('primary email not found')
+    )) {
+      return { success: false, message: "Authentication required." };
+    }
+
+    const logger = (await import('@/lib/logger')).default;
+    logger.error({ bookId, error }, "Failed to duplicate book.");
     return { success: false, message: "Failed to duplicate book. Please try again." };
   }
 } 

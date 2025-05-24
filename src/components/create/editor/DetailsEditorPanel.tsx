@@ -33,7 +33,7 @@ export function DetailsEditorPanel({
           <Label htmlFor="details-title" className="text-sm font-semibold">Book Title</Label>
           <Input
             id="details-title"
-            placeholder="e.g., The Magical Adventure"
+            placeholder={currentTitle.trim() === '' ? "e.g., The Magical Adventure" : ""}
             value={currentTitle}
             onChange={(e) => onTitleChange(e.target.value)}
             data-tourid="details-title-input" // For tour if needed
@@ -43,7 +43,7 @@ export function DetailsEditorPanel({
           <Label htmlFor="details-child-name" className="text-sm font-semibold">Child's Name</Label>
           <Input
             id="details-child-name"
-            placeholder="e.g., Alex"
+            placeholder={currentChildName.trim() === '' ? "e.g., Kai" : ""}
             value={currentChildName}
             onChange={(e) => onChildNameChange(e.target.value)}
             data-tourid="details-childname-input" // For tour if needed

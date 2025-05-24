@@ -85,7 +85,10 @@ export function Canvas({ bookData, options }: CanvasProps) {
               {displayIndex === 0 && (
                 <div className="absolute inset-0 flex items-center justify-center bg-black/30 p-4">
                   <h2 className="text-white text-2xl md:text-3xl font-bold text-center shadow-text">
-                    {bookData.title}
+                    {bookData.title && bookData.title.trim() !== '' 
+                      ? bookData.title 
+                      : "Insert Title in Details below"
+                    }
                   </h2>
                 </div>
               )}

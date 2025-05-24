@@ -1,4 +1,5 @@
 import { PrismaClient } from '@prisma/client';
+import { auth, currentUser } from '@clerk/nextjs/server';
 
 const prisma = new PrismaClient();
 
@@ -32,4 +33,47 @@ export async function ensureUser(clerkUser: {
       imageUrl: finalImageUrl,
     } as any,
   });
+}
+
+/**
+ * Helper function to get the database user ID from Clerk authentication.
+ * This ensures we use the correct internal database user ID for all database operations.
+ * 
+ * @returns Object containing both Clerk user data and the database user record
+ * @throws Error if user is not authenticated or not found in database
+ */
+export async function getAuthenticatedUser() {
+  const { userId: clerkId } = await auth();
+  const user = await currentUser();
+
+  if (!clerkId || !user) {
+    throw new Error('User not authenticated');
+  }
+
+  // Check for ID mismatch
+  if (clerkId !== user.id) {
+    throw new Error('User ID mismatch between auth() and currentUser()');
+  }
+
+  // Extract primary email address
+  const primaryEmail = user.emailAddresses.find(email => email.id === user.primaryEmailAddressId)?.emailAddress;
+
+  if (!primaryEmail) {
+    throw new Error('User primary email not found');
+  }
+
+  // Ensure user exists in database and get the database user record
+  const dbUser = await ensureUser({
+    id: user.id, // Clerk ID
+    email: primaryEmail,
+    name: user.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : null,
+    imageUrl: user.imageUrl,
+  });
+
+  return {
+    clerkUser: user,
+    clerkId: clerkId,
+    dbUser: dbUser,
+    primaryEmail: primaryEmail
+  };
 } 
