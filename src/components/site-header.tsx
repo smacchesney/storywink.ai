@@ -39,12 +39,12 @@ export function SiteHeader() {
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border/40 bg-[#FFFFFF] dark:bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      <div className="container flex h-14 items-center px-6 md:px-8 justify-between">
+      <div className="w-full flex h-14 items-center px-6 md:px-8 justify-between max-w-none">
         {/* Desktop Logo and Nav */}
         <div className="hidden md:flex items-center">
           <Link href="/" className="mr-6 flex items-center space-x-2">
             <Image
-              src="/images/mascot/Winky the TREX.png"
+              src="/images/mascot/kai the dino waving.png"
               alt="Storywink Mascot"
               width={40}
               height={40}
@@ -54,18 +54,13 @@ export function SiteHeader() {
               Storywin<span className="text-[#F76C5E]" >k.ai</span>
             </span>
           </Link>
-          {/* <nav className="flex items-center space-x-6 text-sm font-medium">
-             <Link href="/gallery" className="text-foreground/60 transition-colors hover:text-foreground/80">Gallery</Link>
-             <Link href="/pricing" className="text-foreground/60 transition-colors hover:text-foreground/80">Pricing</Link>
-             {/* Add other links as needed */}
-          {/* </nav> */}
         </div>
 
         {/* Mobile Logo */}
         <div className="flex items-center md:hidden">
           <Link href="/" className="flex items-center space-x-2">
             <Image
-              src="/images/mascot/Winky the TREX.png"
+              src="/images/mascot/kai the dino waving.png"
               alt="Storywink Mascot"
               width={32}
               height={32}
@@ -77,10 +72,10 @@ export function SiteHeader() {
           </Link>
         </div>
         
-        {/* Right side content (Auth buttons and Mobile Menu Trigger) */}
-        <div className="flex items-center space-x-2">
+        {/* Right side content (Auth buttons and Mobile Menu Trigger) - Absolutely positioned to far right */}
+        <div className="flex items-center space-x-3 ml-auto">
           {/* Auth buttons - visible on desktop screens */}
-          <nav className="hidden md:flex items-center space-x-2">
+          <div className="hidden md:flex items-center space-x-3">
              <SignedOut>
                 <Button asChild variant="ghost">
                   <Link href="/sign-in">Sign In</Link>
@@ -98,9 +93,11 @@ export function SiteHeader() {
                       My Library
                     </Link>
                  </Button>
-                 <UserButton afterSignOutUrl="/" />
+                 <div className="flex items-center ml-2">
+                   <UserButton afterSignOutUrl="/" />
+                 </div>
              </SignedIn>
-          </nav>
+          </div>
 
           {/* Mobile Menu Trigger - only on small screens */}
           <div className="md:hidden">

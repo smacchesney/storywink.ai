@@ -6,9 +6,10 @@ import Image from "next/image";
 import React, { useRef, useEffect, useState, useContext, createContext } from 'react';
 import { cn } from "@/lib/utils";
 import StatsCounter from "@/components/landing-page/stats-counter";
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronDown, ChevronUp } from 'lucide-react';
 import { useAuth } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
+import { AnimatedHeroText } from "@/components/ui/animated-hero-text";
 
 interface CarouselImage {
   original: string;
@@ -173,6 +174,7 @@ export default function Home() {
   const { isLoaded, isSignedIn } = useAuth();
   const router = useRouter();
   const [isButtonLoading, setIsButtonLoading] = useState(true);
+  const [expandedFAQ, setExpandedFAQ] = useState<number | null>(null);
 
   // Handle loading state for the button
   useEffect(() => {
@@ -193,13 +195,38 @@ export default function Home() {
     }
   };
 
+  const toggleFAQ = (index: number) => {
+    setExpandedFAQ(expandedFAQ === index ? null : index);
+  };
+
+  const faqItems = [
+    {
+      question: "How does Storywink.ai create personalized storybooks?",
+      answer: "Simply upload photos of your child, and our AI will transform them into beautiful illustrated characters. We then craft engaging stories around their adventures, making them the hero of their own tale."
+    },
+    {
+      question: "What age group is Storywink.ai designed for?",
+      answer: "Our storybooks are perfect for toddlers and young children aged 2-8 years old. The stories are crafted with age-appropriate language and themes that engage young minds."
+    },
+    {
+      question: "How long does it take to create a storybook?",
+      answer: "Most storybooks are ready within minutes! Our AI works quickly to process your photos and generate beautiful illustrations along with an engaging storyline."
+    },
+    {
+      question: "Can I customize the stories?",
+      answer: "Yes! You can guide the story direction, choose themes, and even specify settings or adventures you'd like your child to experience in their personalized storybook."
+    },
+    {
+      question: "Is my child's data and photos safe?",
+      answer: "Absolutely. We take privacy seriously and use industry-standard security measures to protect all uploaded photos and personal information. Your data is never shared with third parties."
+    }
+  ];
+
   return (
     <div className="flex flex-col min-h-screen bg-white dark:bg-gray-900">
       <main className="flex-grow container mx-auto px-4 py-6 md:py-8 space-y-6 md:space-y-8">
         <section className="text-center">
-          <h1 className="text-3xl sm:text-4xl md:text-5xl font-bold text-slate-900 dark:text-white mb-3 md:mb-4 font-sans">
-            Make Your Toddler the Hero of Their Own Picturebook
-          </h1>
+          <AnimatedHeroText />
           
           <p className="text-base sm:text-lg text-slate-600 dark:text-slate-300 mb-5 max-w-2xl mx-auto font-sans">
             Upload photos, and let <span style={{ fontFamily: 'Excalifont' }} className="font-bold">Storywin<span className="text-[#F76C5E]">k.ai</span></span> turn everyday adventures into charming stories.
@@ -220,7 +247,7 @@ export default function Home() {
           
           <div className="mb-2 mt-3">
             <SynchronizedCarousels imageSets={[firstCarouselImages, secondCarouselImages]} interval={4000}>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8 items-start">
+              <div className="grid grid-cols-1 gap-6 md:gap-8 items-start">
                 <SynchronizedBeforeAfterPair images={firstCarouselImages} showControls={false} carouselId="carousel1" />
                 <SynchronizedBeforeAfterPair images={secondCarouselImages} carouselId="carousel2" />
               </div>
@@ -228,6 +255,51 @@ export default function Home() {
           </div>
           
           <StatsCounter count={1234} text="stories created" className="mt-5 text-sm font-sans text-slate-500" />
+        </section>
+
+        {/* FAQ Section */}
+        <section className="py-12 md:py-16">
+          <div className="text-center mb-8 md:mb-12">
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4 mb-4">
+              <Image
+                src="/images/mascot/kai the dino FAQ.png"
+                alt="Kai the Dino FAQ"
+                width={60}
+                height={60}
+                className="h-12 w-12 md:h-15 md:w-15"
+              />
+              <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold text-slate-900 dark:text-white font-sans">
+                Frequently Asked Questions
+              </h2>
+            </div>
+          </div>
+
+          <div className="max-w-3xl mx-auto space-y-3">
+            {faqItems.map((item, index) => (
+              <div key={index} className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+                <button
+                  onClick={() => toggleFAQ(index)}
+                  className="w-full p-6 text-left flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                >
+                  <h3 className="text-lg font-semibold text-slate-900 dark:text-white font-sans pr-4">
+                    {item.question}
+                  </h3>
+                  {expandedFAQ === index ? (
+                    <ChevronUp className="h-5 w-5 text-slate-500 flex-shrink-0" />
+                  ) : (
+                    <ChevronDown className="h-5 w-5 text-slate-500 flex-shrink-0" />
+                  )}
+                </button>
+                {expandedFAQ === index && (
+                  <div className="px-6 pb-6">
+                    <p className="text-slate-600 dark:text-slate-300 font-sans leading-relaxed">
+                      {item.answer}
+                    </p>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
         </section>
       </main>
     </div>

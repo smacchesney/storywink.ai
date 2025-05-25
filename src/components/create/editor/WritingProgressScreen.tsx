@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import Image from 'next/image';
 // import { Loader2 } from 'lucide-react'; // Or a custom doodle SVG
 // import { TextShimmer } from '@/components/ui/text-shimmer'; // Old import
 import { TextShimmerWave } from '@/components/ui/text-shimmer-wave'; // New import
@@ -75,21 +76,31 @@ export function WritingProgressScreen({
 
   return (
     <div className="fixed inset-0 bg-white flex flex-col items-center justify-center z-50">
-      {/* Placeholder for Pink Doodle - using Loader for now */}
-      {/* <Loader2 className="w-20 h-20 md:w-28 md:h-28 text-[#F76C5E] animate-spin mb-8" /> */}
-      {/* // TODO: Replace with actual doodle SVG/component */}
+      {/* Kai the Dino Writing Mascot - No effects */}
+      <div className="mb-8 transform-none">
+        <Image
+          src="/images/mascot/kai the dino writing.png"
+          alt="Kai the Dino writing a story"
+          width={200}
+          height={200}
+          className="w-20 h-20 md:w-28 md:h-28 object-contain"
+          priority
+        />
+      </div>
 
-      {/* Updated Text */}
-      <TextShimmerWave
-        className="text-lg md:text-xl font-medium [--base-color:#374151] [--base-gradient-color:#F76C5E] dark:[--base-color:#D1D5DB] dark:[--base-gradient-color:#F76C5E]"
-        duration={1}
-        spread={1}
-        zDistance={1}
-        scaleDistance={1.1}
-        rotateYDistance={20}  
-      >
-        Brewing a Bedtime adventure...
-      </TextShimmerWave>
+      {/* Text with Shimmer Effect - Properly contained */}
+      <div className="isolate">
+        <TextShimmerWave
+          className="text-lg md:text-xl font-medium [--base-color:#374151] [--base-gradient-color:#F76C5E] dark:[--base-color:#D1D5DB] dark:[--base-gradient-color:#F76C5E]"
+          duration={1}
+          spread={1}
+          zDistance={1}
+          scaleDistance={1.1}
+          rotateYDistance={20}  
+        >
+          Brewing a Bedtime adventure...
+        </TextShimmerWave>
+      </div>
     </div>
   );
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
+import Image from 'next/image';
 // import { Loader2 } from 'lucide-react';
 // import { TextShimmer } from '@/components/ui/text-shimmer'; // Old import
 import { TextShimmerWave } from '@/components/ui/text-shimmer-wave'; // New import
@@ -72,19 +73,33 @@ export function IllustrationProgressScreen({
 
   return (
     <div className="fixed inset-0 bg-white flex flex-col items-center justify-center z-50 p-4 text-center">
-      {/* <Loader2 className="w-20 h-20 md:w-28 md:h-28 text-[#F76C5E] animate-spin mb-8" /> */}
-      <TextShimmerWave 
-        className="text-lg md:text-xl font-medium mb-4 [--base-color:#374151] [--base-gradient-color:#F76C5E] dark:[--base-color:#D1D5DB] dark:[--base-gradient-color:#F76C5E]"
-        duration={1}
-        spread={1}
-        zDistance={1}
-        scaleDistance={1.1}
-        rotateYDistance={20}
-      >
-        Coloring in Your Story, One Page at a Time… 🎨
-      </TextShimmerWave>
+      {/* Kai the Dino Illustrating Mascot - No effects */}
+      <div className="mb-8 transform-none">
+        <Image
+          src="/images/mascot/kai the dino illustrating.png"
+          alt="Kai the Dino creating illustrations"
+          width={200}
+          height={200}
+          className="w-20 h-20 md:w-28 md:h-28 object-contain"
+          priority
+        />
+      </div>
+
+      {/* Text with Shimmer Effect - Properly contained */}
+      <div className="isolate">
+        <TextShimmerWave 
+          className="text-lg md:text-xl font-medium mb-4 [--base-color:#374151] [--base-gradient-color:#F76C5E] dark:[--base-color:#D1D5DB] dark:[--base-gradient-color:#F76C5E]"
+          duration={1}
+          spread={1}
+          zDistance={1}
+          scaleDistance={1.1}
+          rotateYDistance={20}
+        >
+          Creating Your Story 🎨
+        </TextShimmerWave>
+      </div>
       <p className="text-sm text-gray-500">
-        Psst... if you get antsy, you can always tiptoe to &apos;My Library&apos; later to peek at the progress!
+        Feel free to navigate away, and check back "My Library" later
       </p>
     </div>
   );
