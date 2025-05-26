@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { auth } from '@clerk/nextjs/server';
+import { getAuthenticatedUser } from '@/lib/db/ensureUser';
 import { z } from 'zod';
 import { QueueName, flowProducer } from '@/lib/queue/index';
 import { db as prisma } from '@/lib/db';
@@ -33,34 +33,28 @@ interface BookFinalizeJobData {
 }
 
 export async function POST(request: Request) {
-  const authResult = await auth();
-  const userId = authResult?.userId;
-
-  if (!userId) {
-    console.warn('Unauthorized illustration generation attempt');
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
-  let requestData;
   try {
-    const rawData = await request.json();
-    requestData = illustrationRequestSchema.parse(rawData);
-    console.info({ userId, bookId: requestData.bookId }, 'Received illustration generation request');
-  } catch (error) {
-    console.error({ userId, error }, 'Invalid illustration generation request data');
-    if (error instanceof z.ZodError) {
-      return NextResponse.json({ error: 'Invalid input data', details: error.errors }, { status: 400 });
+    const { dbUser, clerkId } = await getAuthenticatedUser();
+
+    let requestData;
+    try {
+      const rawData = await request.json();
+      requestData = illustrationRequestSchema.parse(rawData);
+      logger.info({ clerkId, dbUserId: dbUser.id, bookId: requestData.bookId }, 'Received illustration generation request');
+    } catch (error) {
+      logger.error({ clerkId, dbUserId: dbUser.id, error }, 'Invalid illustration generation request data');
+      if (error instanceof z.ZodError) {
+        return NextResponse.json({ error: 'Invalid input data', details: error.errors }, { status: 400 });
+      }
+      return NextResponse.json({ error: 'Failed to parse request data' }, { status: 400 });
     }
-    return NextResponse.json({ error: 'Failed to parse request data' }, { status: 400 });
-  }
 
-  try {
     // Step 1: Validate Book Ownership and Status
-    console.info({ userId, bookId: requestData.bookId }, 'Validating book...');
+    logger.info({ clerkId, dbUserId: dbUser.id, bookId: requestData.bookId }, 'Validating book...');
     const book = await prisma.book.findUnique({
       where: {
         id: requestData.bookId,
-        userId: userId, 
+        userId: dbUser.id, // Use database user ID for ownership check
       },
       select: {
         id: true,
@@ -83,28 +77,28 @@ export async function POST(request: Request) {
     });
 
     if (!book) {
-      console.warn({ userId, bookId: requestData.bookId }, 'Book not found or user mismatch for illustration generation.');
+      logger.warn({ clerkId, dbUserId: dbUser.id, bookId: requestData.bookId }, 'Book not found or user mismatch for illustration generation.');
       return NextResponse.json({ error: 'Book not found or access denied.' }, { status: 404 });
     }
 
     if (book.status !== BookStatus.COMPLETED) {
-      console.warn({ userId, bookId: requestData.bookId, status: book.status }, 'Book not in correct state for illustration generation.');
+      logger.warn({ clerkId, dbUserId: dbUser.id, bookId: requestData.bookId, status: book.status }, 'Book not in correct state for illustration generation.');
       return NextResponse.json({ error: `Book must be in COMPLETED state to start illustration (current: ${book.status})` }, { status: 409 }); // Conflict status
     }
 
     if (!book.pages || book.pages.length === 0) {
-       console.error({ userId, bookId: book.id }, 'No pages found for this book to illustrate.');
+       logger.error({ clerkId, dbUserId: dbUser.id, bookId: book.id }, 'No pages found for this book to illustrate.');
        return NextResponse.json({ error: 'Cannot illustrate a book with no pages.' }, { status: 400 });
     }
 
-    console.info({ userId, bookId: book.id }, 'Book validation successful.');
+    logger.info({ clerkId, dbUserId: dbUser.id, bookId: book.id }, 'Book validation successful.');
 
     // Step 2: Update Book Status to ILLUSTRATING
     await prisma.book.update({
         where: { id: book.id },
         data: { status: BookStatus.ILLUSTRATING }
     });
-    console.info({ userId, bookId: book.id }, 'Book status updated to ILLUSTRATING.');
+    logger.info({ clerkId, dbUserId: dbUser.id, bookId: book.id }, 'Book status updated to ILLUSTRATING.');
 
     // Step 3: Create child job definitions for each page
     const pageChildren = book.pages.map((page, index) => {
@@ -112,7 +106,7 @@ export async function POST(request: Request) {
         const logicalPageNumber = index + 1;
         
         const illustrationJobData: IllustrationGenerationJobData = {
-            userId: userId,
+            userId: dbUser.id, // Use database user ID
             bookId: book.id,
             pageId: page.id,
             pageNumber: logicalPageNumber,
@@ -125,7 +119,7 @@ export async function POST(request: Request) {
             originalImageUrl: page.originalImageUrl,
         };
         const jobName = `generate-illustration-${book.id}-p${logicalPageNumber}`;
-        logger.info({ userId, bookId: book.id, pageId: page.id, pageNumber: logicalPageNumber, isTitle: isActualTitlePage }, `Queueing job: ${jobName}`);
+        logger.info({ clerkId, dbUserId: dbUser.id, bookId: book.id, pageId: page.id, pageNumber: logicalPageNumber, isTitle: isActualTitlePage }, `Queueing job: ${jobName}`);
         return {
             name: jobName,
             queueName: QueueName.IllustrationGeneration,
@@ -144,7 +138,7 @@ export async function POST(request: Request) {
     // Step 4: Add the flow (parent job + children) atomically (remains the same)
     const finalizeJobData: BookFinalizeJobData = {
         bookId: book.id,
-        userId: userId,
+        userId: dbUser.id, // Use database user ID
     };
 
     await flowProducer.add({
@@ -158,13 +152,25 @@ export async function POST(request: Request) {
         children: pageChildren // Link the page illustration jobs
     });
 
-    logger.info({ userId, bookId: book.id, childJobCount: pageChildren.length }, 'Added illustration flow to queue (parent + children)');
+    logger.info({ clerkId, dbUserId: dbUser.id, bookId: book.id, childJobCount: pageChildren.length }, 'Added illustration flow to queue (parent + children)');
 
     // Step 5: Return confirmation (remains the same)
     return NextResponse.json({ message: `Illustration flow initiated for ${pageChildren.length} pages.`, bookId: book.id }, { status: 202 });
 
   } catch (error: any) {
-    console.error({ userId, bookId: requestData.bookId, error: error.message }, 'Error during illustration job queuing or validation');
+    // Handle authentication errors first
+    if (error instanceof Error && (
+      error.message.includes('not authenticated') ||
+      error.message.includes('ID mismatch') ||
+      error.message.includes('primary email not found')
+    )) {
+      logger.warn('Unauthorized illustration generation attempt');
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // For other errors, extract bookId if available
+    const bookId = error?.requestData?.bookId || 'unknown';
+    logger.error({ bookId, error: error.message }, 'Error during illustration job queuing or validation');
     // Attempt to revert status - maybe move status update to finalize job?
     // For now, just log the error and return 500
     return NextResponse.json({ error: error.message || 'An unexpected error occurred' }, { status: 500 });

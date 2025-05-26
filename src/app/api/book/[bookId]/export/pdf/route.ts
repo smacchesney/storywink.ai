@@ -1,8 +1,8 @@
-import { NextResponse } from 'next/server';
-import { auth } from '@clerk/nextjs/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { getAuthenticatedUser } from '@/lib/db/ensureUser';
 import { db as prisma } from '@/lib/db';
-import { generateBookPdf } from '@/lib/pdf/generateBookPdf'; // Import the service
 import logger from '@/lib/logger';
+import { generateBookPdf } from '@/lib/pdf/generateBookPdf';
 import { Book, Page } from '@prisma/client';
 
 // Define the expected Book type with Pages for the PDF generator
@@ -13,24 +13,21 @@ export async function GET(
   { params }: { params: Promise<{ bookId: string }> }
 ) {
   const { bookId } = await params;
-  const { userId } = await auth();
-
-  if (!userId) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
-  if (!bookId) {
-    return NextResponse.json({ error: 'Missing bookId parameter' }, { status: 400 });
-  }
 
   try {
-    logger.info({ userId, bookId }, "PDF export request received.");
+    const { dbUser, clerkId } = await getAuthenticatedUser();
+
+    if (!bookId) {
+      return NextResponse.json({ error: 'Missing bookId parameter' }, { status: 400 });
+    }
+
+    logger.info({ clerkId, dbUserId: dbUser.id, bookId }, "PDF export request received.");
 
     // 1. Fetch the full book data, including pages with text and generated URLs
     const bookData = await prisma.book.findUnique({
       where: {
         id: bookId,
-        userId: userId, // Ensure ownership
+        userId: dbUser.id, // Use database user ID for ownership check
       },
       include: {
         pages: {
@@ -56,7 +53,7 @@ export async function GET(
     });
 
     if (!bookData) {
-      logger.warn({ userId, bookId }, "Book not found or user does not have permission for PDF export.");
+      logger.warn({ clerkId, dbUserId: dbUser.id, bookId }, "Book not found or user does not have permission for PDF export.");
       return NextResponse.json({ error: 'Book not found or access denied' }, { status: 404 });
     }
 
@@ -68,20 +65,25 @@ export async function GET(
     // 2. Generate the PDF buffer
     const pdfBuffer = await generateBookPdf(bookData as BookWithPages);
 
-    // 3. Return the PDF as a response
-    const fileName = `${bookData.title?.replace(/[^a-zA-Z0-9]/g, '_') || 'storybook'}.pdf`;
-    logger.info({ userId, bookId, fileName, size: pdfBuffer.length }, "Sending PDF file.");
-
+    // 3. Send the PDF as response
     return new NextResponse(pdfBuffer, {
-      status: 200,
       headers: {
         'Content-Type': 'application/pdf',
-        'Content-Disposition': `attachment; filename="${fileName}"`, // Prompt download
+        'Content-Disposition': `attachment; filename="${bookData.title || 'book'}.pdf"`,
       },
     });
 
-  } catch (error: any) {
-    logger.error({ userId, bookId, error: error.message }, "Error generating or retrieving PDF.");
+  } catch (error) {
+    // Handle authentication errors
+    if (error instanceof Error && (
+      error.message.includes('not authenticated') ||
+      error.message.includes('ID mismatch') ||
+      error.message.includes('primary email not found')
+    )) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    logger.error({ bookId, error }, "Error generating PDF.");
     return NextResponse.json({ error: 'Failed to generate PDF' }, { status: 500 });
   }
 } 

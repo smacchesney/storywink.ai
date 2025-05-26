@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { auth } from '@clerk/nextjs/server';
+import { getAuthenticatedUser } from '@/lib/db/ensureUser';
 import { db as prisma } from '@/lib/db';
 import { z } from 'zod';
 
@@ -14,70 +14,79 @@ export async function PATCH(
 ) {
   const { bookId, pageId } = await params; 
   
-  // Now perform auth check
-  const authResult = await auth();
-  const userId = authResult?.userId;
-  
-  if (!userId) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
-  if (!bookId || !pageId) {
-    return NextResponse.json({ error: 'Missing bookId or pageId parameter' }, { status: 400 });
-  }
-
   try {
-    // Validate request body
-    const body = await request.json();
-    const validation = updatePageSchema.safeParse(body);
+    const { dbUser, clerkId } = await getAuthenticatedUser();
 
-    if (!validation.success) {
-      return NextResponse.json({ error: 'Invalid request body', details: validation.error.errors }, { status: 400 });
+    if (!bookId || !pageId) {
+      return NextResponse.json({ error: 'Missing bookId or pageId parameter' }, { status: 400 });
     }
 
-    const { text } = validation.data;
+    // Parse and validate request body
+    let requestBody;
+    try {
+      requestBody = await request.json();
+    } catch (error) {
+      return NextResponse.json({ error: 'Invalid JSON in request body' }, { status: 400 });
+    }
 
-    // Find the book and verify ownership (implicitly via userId on Book)
-    // Also verify the page belongs to this book
-    const page = await prisma.page.findUnique({
-      where: {
-        id: pageId,
-        bookId: bookId, // Ensure page belongs to the specified book
-        // Optional but recommended: Ensure the book belongs to the user
-        // This requires adding a relation from Page -> Book -> User or just checking Book ownership separately
-        book: {
-           userId: userId,
-        },
-      },
+    // Validate the request body structure
+    let validatedData;
+    try {
+      validatedData = updatePageSchema.parse(requestBody);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return NextResponse.json({ error: 'Invalid request data', details: error.errors }, { status: 400 });
+      }
+      return NextResponse.json({ error: 'Validation failed' }, { status: 400 });
+    }
+
+    const { text } = validatedData;
+
+    // Verify user owns the book before proceeding - use database user ID
+    const bookOwnerCheck = await prisma.book.findUnique({
+      where: { id: bookId, userId: dbUser.id },
+      select: { id: true },
     });
 
-    if (!page) {
-      return NextResponse.json({ error: 'Page not found or you do not have permission to edit it' }, { status: 404 });
+    if (!bookOwnerCheck) {
+      return NextResponse.json({ error: 'Book not found or you do not have permission.' }, { status: 403 });
     }
 
-    // Update the page text
-    const updatedPage = await prisma.page.update({
+    // Update the page text using updateMany to ensure the page belongs to the correct book
+    const updateResult = await prisma.page.updateMany({
       where: {
         id: pageId,
-        // Add bookId and userId check here for extra safety
-        bookId: bookId,
-        book: { userId: userId },
+        bookId: bookId, // Ensure the page belongs to this book
       },
       data: {
         text: text,
-        textConfirmed: false, // Explicitly unconfirm on edit
+        textConfirmed: true, // Mark as confirmed when manually updated
+        updatedAt: new Date(),
       },
     });
 
-    console.log(`User ${userId} updated page ${pageId} for book ${bookId}`);
-    return NextResponse.json(updatedPage, { status: 200 });
+    // Check if any record was actually updated
+    if (updateResult.count === 0) {
+      // Check if the page exists at all to differentiate 404 vs 403
+      const pageExists = await prisma.page.findUnique({ where: { id: pageId }, select: { id: true } });
+      const status = pageExists ? 403 : 404;
+      const message = pageExists ? 'Page does not belong to this book' : 'Page not found';
+      return NextResponse.json({ error: message }, { status });
+    }
+
+    return NextResponse.json({ message: 'Page updated successfully' }, { status: 200 });
 
   } catch (error) {
-    console.error(`Error updating page ${pageId} for book ${bookId}:`, error);
-    // Handle potential JSON parsing errors
-    if (error instanceof SyntaxError) {
-        return NextResponse.json({ error: 'Invalid JSON in request body' }, { status: 400 });
+    // Handle authentication errors
+    if (error instanceof Error && (
+      error.message.includes('not authenticated') ||
+      error.message.includes('ID mismatch') ||
+      error.message.includes('primary email not found')
+    )) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+
+    console.error(`Error updating page ${pageId} in book ${bookId}:`, error);
     return NextResponse.json({ error: 'Failed to update page' }, { status: 500 });
   }
 } 

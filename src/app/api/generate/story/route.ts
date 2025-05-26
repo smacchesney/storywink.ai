@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@clerk/nextjs/server';
+import { getAuthenticatedUser } from '@/lib/db/ensureUser';
 import { z } from 'zod';
 import { getQueue, QueueName } from '@/lib/queue'; // Correct queue import
 // Import types from the default client path
@@ -59,32 +59,27 @@ const triggerStoryRequestSchema = z.object({
 });
 
 export async function POST(req: NextRequest) {
-  const { userId } = await auth();
-
-  if (!userId) {
-    logger.warn('API: /generate/story attempt without authentication.');
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
-  let validatedData;
   try {
-    const body = await req.json();
-    validatedData = triggerStoryRequestSchema.parse(body);
-    logger.info({ userId, bookId: validatedData.bookId }, 'API: Validated /generate/story request.');
-  } catch (error) {
-    logger.warn({ userId, error }, 'API: Invalid /generate/story request body.');
-    if (error instanceof z.ZodError) {
-      return NextResponse.json({ error: 'Invalid request body', details: error.errors }, { status: 400 });
+    const { dbUser, clerkId } = await getAuthenticatedUser();
+
+    let validatedData;
+    try {
+      const body = await req.json();
+      validatedData = triggerStoryRequestSchema.parse(body);
+      logger.info({ clerkId, dbUserId: dbUser.id, bookId: validatedData.bookId }, 'API: Validated /generate/story request.');
+    } catch (error) {
+      logger.warn({ clerkId, dbUserId: dbUser.id, error }, 'API: Invalid /generate/story request body.');
+      if (error instanceof z.ZodError) {
+        return NextResponse.json({ error: 'Invalid request body', details: error.errors }, { status: 400 });
+      }
+      return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
     }
-    return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
-  }
 
-  const { bookId } = validatedData;
+    const { bookId } = validatedData;
 
-  try {
     // 1. Fetch Book, Pages, and Assets (ensure user owns the book)
     const book = await prisma.book.findUnique({
-      where: { id: bookId, userId: userId },
+      where: { id: bookId, userId: dbUser.id },
       include: {
         pages: {
           orderBy: { index: 'asc' }, // Fetch sorted by saved index
@@ -96,19 +91,19 @@ export async function POST(req: NextRequest) {
     });
 
     if (!book) {
-      logger.warn({ userId, bookId }, 'API: /generate/story - Book not found or permission denied.');
+      logger.warn({ clerkId, dbUserId: dbUser.id, bookId }, 'API: /generate/story - Book not found or permission denied.');
       return NextResponse.json({ error: 'Book not found or permission denied' }, { status: 404 });
     }
 
     // 2. Validate required fields for generation
     if (!book.title?.trim() || !book.childName?.trim() || !book.artStyle) {
-        logger.warn({ userId, bookId }, 'API: /generate/story - Missing required book details (title, childName, artStyle).');
+        logger.warn({ clerkId, dbUserId: dbUser.id, bookId }, 'API: /generate/story - Missing required book details (title, childName, artStyle).');
         return NextResponse.json({ error: 'Missing required book details: Title, Child\'s Name, and Art Style must be set.' }, { status: 400 });
     }
     
     // Ensure book is in a state where generation can be started (e.g., DRAFT or maybe FAILED)
     if (book.status !== BookStatus.DRAFT && book.status !== BookStatus.FAILED && book.status !== BookStatus.COMPLETED) { // Allow re-gen from COMPLETED? Maybe not.
-        logger.warn({ userId, bookId, status: book.status }, 'API: /generate/story - Book not in DRAFT or FAILED state.');
+        logger.warn({ clerkId, dbUserId: dbUser.id, bookId, status: book.status }, 'API: /generate/story - Book not in DRAFT or FAILED state.');
         return NextResponse.json({ error: `Book generation cannot be started from current status: ${book.status}` }, { status: 409 }); // Conflict
     }
 
@@ -124,22 +119,22 @@ export async function POST(req: NextRequest) {
       }));
       
     if (pagesForStory.length === 0) {
-        logger.error({ userId, bookId }, 'API: /generate/story - No pages available for story generation after filtering cover.');
+        logger.error({ clerkId, dbUserId: dbUser.id, bookId }, 'API: /generate/story - No pages available for story generation after filtering cover.');
         return NextResponse.json({ error: 'No pages found to generate story for (after excluding cover).' }, { status: 400 });
     }
 
-    logger.info({ userId, bookId, pageCount: pagesForStory.length }, 'API: /generate/story - Prepared pages for job queue.');
+    logger.info({ clerkId, dbUserId: dbUser.id, bookId, pageCount: pagesForStory.length }, 'API: /generate/story - Prepared pages for job queue.');
 
     // 4. Update Book status to GENERATING
     await prisma.book.update({
       where: { id: bookId },
       data: { status: BookStatus.GENERATING },
     });
-    logger.info({ userId, bookId }, 'API: /generate/story - Set book status to GENERATING.');
+    logger.info({ clerkId, dbUserId: dbUser.id, bookId }, 'API: /generate/story - Set book status to GENERATING.');
 
     // 5. Prepare Job Data
     const jobData: StoryGenerationJobData = {
-      userId,
+      userId: dbUser.id, // Use database user ID
       bookId,
       promptContext: { // Simplified prompt context
         bookTitle: book.title,
@@ -162,21 +157,35 @@ export async function POST(req: NextRequest) {
           delay: 10000, 
         },
     });
-    logger.info({ userId, bookId }, 'API: /generate/story - Job added to StoryGeneration queue.');
+    logger.info({ clerkId, dbUserId: dbUser.id, bookId }, 'API: /generate/story - Job added to StoryGeneration queue.');
 
     // 7. Return Accepted response
     return NextResponse.json({ message: 'Story generation initiated', bookId: bookId }, { status: 202 });
 
   } catch (error) {
-    logger.error({ userId, bookId, error }, 'API: Error in /generate/story endpoint.');
+    // Handle authentication errors first
+    if (error instanceof Error && (
+      error.message.includes('not authenticated') ||
+      error.message.includes('ID mismatch') ||
+      error.message.includes('primary email not found')
+    )) {
+      logger.warn('API: /generate/story attempt without authentication.');
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // For other errors, try to extract context if available
+    const errorData = error as any;
+    const bookId = errorData?.bookId || 'unknown';
+    
+    logger.error({ bookId, error }, 'API: Error in /generate/story endpoint.');
     // Attempt to reset status to FAILED if something went wrong after setting GENERATING
     try {
         await prisma.book.updateMany({
-            where: { id: bookId, userId: userId, status: BookStatus.GENERATING },
+            where: { id: bookId, status: BookStatus.GENERATING },
             data: { status: BookStatus.FAILED }
         });
     } catch (resetError) {
-        logger.error({ userId, bookId, resetError }, 'API: Failed to reset book status to FAILED after error.');
+        logger.error({ bookId, resetError }, 'API: Failed to reset book status to FAILED after error.');
     }
     return NextResponse.json({ error: 'Failed to initiate story generation' }, { status: 500 });
   }
