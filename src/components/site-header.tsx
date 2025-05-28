@@ -44,7 +44,7 @@ export function SiteHeader() {
         <div className="hidden md:flex items-center">
           <Link href="/" className="mr-6 flex items-center space-x-2">
             <Image
-              src="/images/mascot/kai the dino waving.png"
+              src="/images/mascot/dino waving_nobg.png"
               alt="Storywink Mascot"
               width={40}
               height={40}
@@ -60,7 +60,7 @@ export function SiteHeader() {
         <div className="flex items-center md:hidden">
           <Link href="/" className="flex items-center space-x-2">
             <Image
-              src="/images/mascot/kai the dino waving.png"
+              src="/images/mascot/dino waving_nobg.png"
               alt="Storywink Mascot"
               width={32}
               height={32}
